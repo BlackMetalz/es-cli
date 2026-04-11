@@ -152,9 +152,10 @@ func newRouter() *commands.Router {
 	return r
 }
 
-func NewApp(client *es.Client, clusterURL string) *App {
+func NewApp(client *es.Client, clusterURL, clusterName string) *App {
 	h := header.New(clusterURL)
 	h.User = client.Username()
+	h.ClusterName = clusterName
 	dashView := dashview.New(client)
 
 	h.ViewName = dashView.Name()
@@ -225,7 +226,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Global messages
 	switch msg := msg.(type) {
 	case clusterInfoMsg:
-		a.header.ClusterName = msg.Name
+		// Keep cluster name from config, only update version and health
 		a.header.ESVersion = msg.Version
 		a.header.ClusterHealth = msg.Health
 		return a, nil

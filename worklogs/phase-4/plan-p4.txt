@@ -1,0 +1,207 @@
+ Phase 4: Multi-Cluster Support
+
+ Context
+
+ Currently the app connects to a single ES cluster from ES_URL env var. Phase 4 adds multi-cluster support: new auth format with multiple clusters, a cluster selection screen on startup, --cluster flag for direct
+ connect, and a second ES dev container.
+
+ Decisions
+
+ - Break old auth format — show migration error if old format detected
+ - List selection UI on startup (full-screen, j/k, Enter)
+ - Second ES on port 9201, same creds (elastic:elastic)
+
+ New Auth Format (~/.es-cli.auth)
+
+ {
+   "local": {
+     "username": "elastic",
+     "password": "elastic",
+     "url": "http://localhost:9200"
+   },
+   "local-2": {
+     "username": "elastic",
+     "password": "elastic",
+     "url": "http://localhost:9201"
+   }
+ }
+
+ Keys are cluster names. Each value has username, password, url.
+
+ Changes
+
+ Step 1: Auth — internal/auth/auth.go + test
+
+ New types:
+ type ClusterConfig struct {
+     Name     string
+     Username string
+     Password string
+     URL      string
+ }
+
+ func LoadAuth(path string) ([]ClusterConfig, error)
+
+ - Parse JSON as map[string]map[string]string
+ - Iterate keys → cluster name, extract username/password/url
+ - Validate each cluster has all 3 fields non-empty
+ - If old format detected ({"user":"pass"}), return clear error: "Auth format has changed. Please update ~/.es-cli.auth to multi-cluster format. See docs."
+ - Remove old Credential struct
+
+ Old format detection: if any value is a string (not an object), it's the old format.
+
+ Step 2: Cluster Selection TUI — internal/tui/clusterselect/
+
+ New Bubble Tea model (NOT a View — standalone program model for pre-app selection).
+
+ clusterselect.go (~120 lines):
+ type Model struct {
+     clusters []auth.ClusterConfig
+     cursor   int
+     width    int
+     height   int
+ }
+
+ type SelectedMsg struct {
+     Cluster auth.ClusterConfig
+ }
+
+ type QuitMsg struct{}
+
+ - j/k or up/down moves cursor
+ - Enter selects → returns SelectedMsg
+ - q/Esc → returns QuitMsg
+ - View renders:
+   es-cli — Select Cluster
+
+ > local          http://localhost:9200
+   local-2        http://localhost:9201
+
+   enter: connect • q: quit
+
+ Step 3: CLI Flag — cmd/es-cli/main.go
+
+ Add --cluster flag using os.Args parsing (no external deps needed):
+
+ func main() {
+     clusterName := ""
+     for i, arg := range os.Args[1:] {
+         if arg == "--cluster" && i+1 < len(os.Args[1:]) {
+             clusterName = os.Args[i+2]
+         }
+     }
+
+     configs, err := auth.LoadAuth(authPath)
+     // ...
+
+     if clusterName != "" {
+         // Find matching cluster, connect directly
+         cluster := findCluster(configs, clusterName)
+         runApp(cluster)
+     } else if len(configs) == 1 {
+         // Single cluster, connect directly
+         runApp(configs[0])
+     } else {
+         // Show cluster selection UI
+         selected := runClusterSelect(configs)
+         runApp(selected)
+     }
+ }
+
+ When only 1 cluster in config → skip selection, connect directly.
+
+ Step 4: Header — show cluster name
+
+ Header already has ClusterName field. Currently populated from GetClusterInfo() (ES cluster_name). Change to show the config name (from auth file) instead — more useful since user chose it.
+
+ In NewApp: h.ClusterName = clusterName (passed from main).
+
+ Update NewApp signature:
+ func NewApp(client *es.Client, clusterURL, clusterName string) *App
+
+ Step 5: Docker — add es02
+
+ Add to docker-compose.yml:
+ es02:
+   image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+   container_name: es-cli-es02
+   environment:
+     - discovery.type=single-node
+     - ELASTIC_PASSWORD=elastic
+     - xpack.security.enabled=true
+     - xpack.security.http.ssl.enabled=false
+     - ES_JAVA_OPTS=-Xms512m -Xmx512m
+   ports:
+     - "9201:9200"
+   deploy:
+     resources:
+       limits:
+         memory: 2G
+   healthcheck:
+     test: ["CMD-SHELL", "curl -s -u elastic:elastic http://localhost:9200/_cluster/health | grep -q '\"status\"'"]
+     interval: 10s
+     timeout: 5s
+     retries: 30
+
+ Update dev-init in Makefile to wait for both + create sample auth file.
+
+ Step 6: Sample auth file + Makefile
+
+ Add make dev-auth target that creates ~/.es-cli.auth with both local clusters:
+ {
+   "local": {
+     "username": "elastic",
+     "password": "elastic",
+     "url": "http://localhost:9200"
+   },
+   "local-2": {
+     "username": "elastic",
+     "password": "elastic",
+     "url": "http://localhost:9201"
+   }
+ }
+
+ Step 7: Cluster switching at runtime (optional enhancement)
+
+ Add :cluster command to switch clusters without restarting:
+ - Register cluster command in router
+ - When invoked, show the cluster selection list as an overlay or switch immediately if name given
+ - Create new es.Client, reset viewStack to dashboard
+
+ This is optional — can be done as a follow-up.
+
+ Implementation Order
+
+ 1. internal/auth/auth.go + test — new format, break old
+ 2. internal/tui/clusterselect/clusterselect.go + test — selection UI
+ 3. cmd/es-cli/main.go — --cluster flag, selection flow, updated NewApp call
+ 4. internal/tui/app.go — update NewApp to accept clusterName
+ 5. internal/tui/header/header.go — populate ClusterName from config (not ES)
+ 6. docker-compose.yml — add es02
+ 7. Makefile — update dev-init, add dev-auth
+ 8. Tests for all new code
+
+ Files Modified
+
+ - internal/auth/auth.go — rewrite LoadAuth for new format
+ - internal/auth/auth_test.go — rewrite tests
+ - cmd/es-cli/main.go — flag parsing, cluster selection, updated flow
+ - internal/tui/app.go — NewApp signature change (add clusterName)
+ - internal/tui/header/header.go — no code change (field already exists)
+ - docker-compose.yml — add es02
+ - Makefile — update targets
+
+ New Files
+
+ - internal/tui/clusterselect/clusterselect.go + test
+
+ Verification
+
+ 1. go test ./... — all pass
+ 2. make dev-init — both es01 and es02 start
+ 3. make dev-auth — creates sample auth file
+ 4. make run — shows cluster selection, pick one, app connects
+ 5. ./es-cli --cluster local — connects directly, no selection
+ 6. ./es-cli --cluster nonexistent — shows error
+ 7. Header shows config cluster name (e.g., "local" not "docker-cluster")
+ 8. Old auth format → clear error message with migration instructions

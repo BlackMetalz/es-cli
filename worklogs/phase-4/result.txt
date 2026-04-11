@@ -1,0 +1,9 @@
+⏺ All 17 packages pass. Phase 4 complete.
+
+  Summary:
+
+  1. New auth format — ~/.es-cli.auth now holds multiple clusters: {"cluster-name": {"username":"...", "password":"...", "url":"..."}}. Old format shows clear migration error.
+  2. Cluster selection — when 2+ clusters in config, full-screen selection UI on startup (j/k, Enter). Single cluster auto-connects.
+  3. --cluster flag — ./es-cli --cluster local connects directly, no selection.
+  4. Header — shows config cluster name (e.g., "local") instead of ES cluster_name.
+  5. Docker — added es02 on port 9201 (same creds). make dev-init waits for both. make dev-auth creates sample auth file.
