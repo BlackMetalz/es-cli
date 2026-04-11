@@ -14,6 +14,7 @@ import (
 	"github.com/kienlt/es-cli/internal/tui/header"
 	"github.com/kienlt/es-cli/internal/tui/theme"
 	"github.com/kienlt/es-cli/internal/tui/views"
+	dashview "github.com/kienlt/es-cli/internal/tui/views/dashboard"
 	detailview "github.com/kienlt/es-cli/internal/tui/views/detail"
 	indexview "github.com/kienlt/es-cli/internal/tui/views/index"
 	nodeview "github.com/kienlt/es-cli/internal/tui/views/node"
@@ -109,20 +110,21 @@ func newRouter() *commands.Router {
 	r.Register(commands.Command{Name: "index", Aliases: []string{"indices"}, Description: "List indices"})
 	r.Register(commands.Command{Name: "node", Aliases: []string{"nodes"}, Description: "List nodes"})
 	r.Register(commands.Command{Name: "shard", Aliases: []string{"shards"}, Description: "List shards"})
+	r.Register(commands.Command{Name: "dashboard", Aliases: []string{"dash"}, Description: "Cluster dashboard"})
 	return r
 }
 
 func NewApp(client *es.Client, clusterURL string) *App {
 	h := header.New(clusterURL)
 	h.User = client.Username()
-	idxView := indexview.New(client)
+	dashView := dashview.New(client)
 
-	h.ViewName = idxView.Name()
-	h.HelpGroups = idxView.HelpGroups()
+	h.ViewName = dashView.Name()
+	h.HelpGroups = dashView.HelpGroups()
 
 	return &App{
 		header:    h,
-		viewStack: []views.View{idxView},
+		viewStack: []views.View{dashView},
 		client:    client,
 		router:    newRouter(),
 	}
@@ -315,6 +317,8 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		v = nodeview.New(a.client)
 	case "shard":
 		v = shardview.New(a.client)
+	case "dashboard":
+		v = dashview.New(a.client)
 	default:
 		return a, nil
 	}

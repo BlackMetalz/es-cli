@@ -1,0 +1,81 @@
+ Phase 2: Dashboard View (Cluster Monitoring)
+
+ Context
+
+ The app currently opens to the index list. Phase 2 adds a :dashboard view showing cluster monitoring stats — similar to Kibana's Stack Monitoring. Three sections: Overview, Nodes, Indices.
+
+ New Files
+
+ internal/es/
+   dashboard.go + dashboard_test.go     # DashboardData type + GetDashboardData()
+
+ internal/tui/views/dashboard/
+   model.go                             # Dashboard view (~200 lines)
+   keybindings.go                       # r/q/?  (~35 lines)
+   model_test.go
+
+ Step 1: ES Client — es/dashboard.go
+
+ DashboardData struct:
+ Health, Version string
+ Uptime          time.Duration
+ NodeCount       int
+ DiskAvailable   string (formatted)
+ DiskTotal       string (formatted)
+ HeapUsed        string (formatted)
+ HeapMax         string (formatted)
+ IndexCount      int
+ DocCount        int64
+ DiskUsage       string (formatted)
+ PrimaryShards   int
+ ReplicaShards   int
+
+ GetDashboardData() calls 3 APIs:
+ 1. GET / → version, cluster_name
+ 2. GET /_cluster/stats → indices.count, indices.docs.count, indices.store.size_in_bytes, nodes.count.total, nodes.jvm.mem.heap_used/max_in_bytes, nodes.fs.total/available_in_bytes, indices.shards.primaries (+
+ compute replicas = total - primaries)
+ 3. GET /_nodes/stats/jvm → iterate nodes.*.jvm.start_time_in_millis, find minimum → compute uptime
+
+ Uses FormatBytes() from index.go for human-readable sizes. Uses map[string]interface{} + type assertions (existing pattern).
+
+ Step 2: Dashboard View — views/dashboard/
+
+ Layout (3 boxes side-by-side using lipgloss):
+ ╭─ Overview ──────────╮ ╭─ Nodes ──────────────╮ ╭─ Indices ─────────────╮
+ │ Health:  ● green     │ │ Count:     1          │ │ Total:       113      │
+ │ Version: 8.17.0     │ │ Disk Avail: 120.5gb   │ │ Documents:   100,000  │
+ │ Uptime:  5d 3h 12m  │ │ JVM Heap:  512m/1.0gb │ │ Disk Usage:  50.3gb   │
+ │                      │ │                       │ │ Primary:     113      │
+ │                      │ │                       │ │ Replicas:    0        │
+ ╰──────────────────────╯ ╰───────────────────────╯ ╰───────────────────────╯
+
+ - Each section: lipgloss.NewStyle().Border(RoundedBorder).BorderForeground(ColorBlue).Padding(1,2)
+ - Health colored via theme.HealthStyle()
+ - Labels in gray, values in white/bold
+ - If terminal < 80 cols, stack vertically
+ - Helpers: formatUptime(d) → "5d 3h 12m", formatNumber(n) → "1,234,567"
+
+ Keybindings: r refresh, ? help, q quit. No search/sort/filter.
+
+ View interface: Name() = "Dashboard", IsInputMode() = false, PopPendingAction() = nil, StatusInfo() = "cluster: green"
+
+ Step 3: App.go Changes (3 lines)
+
+ 1. Import: dashview "github.com/kienlt/es-cli/internal/tui/views/dashboard"
+ 2. Register: r.Register(commands.Command{Name: "dashboard", Aliases: []string{"dash"}, Description: "Cluster dashboard"})
+ 3. Switch case: case "dashboard": v = dashview.New(a.client)
+
+ Implementation Order
+
+ 1. es/dashboard.go + test
+ 2. views/dashboard/keybindings.go
+ 3. views/dashboard/model.go + test
+ 4. app.go integration (3 lines) + app test
+
+ Verification
+
+ 1. go test ./... — all pass
+ 2. make run → :dashboard → verify 3 sections render with live data
+ 43. Test narrow terminal (< 80 cols) for vertical fallback
+
+ 7.7k tokens!

@@ -1,0 +1,138 @@
+ Phase 1: Command Palette + Node View + Shard View + Node Maintenance
+
+ Context
+
+ Currently the app only shows the index list view. Phase 1 adds K9s-style command routing (:index, :node, :shard) with autocomplete, two new views for nodes and shards, and a node maintenance feature to control
+ cluster routing allocation.
+
+ New File Structure
+
+ internal/es/
+   node.go + node_test.go              # Node type + ListNodes()
+   shard.go + shard_test.go            # Shard type + ListShards()
+   cluster.go + cluster_test.go        # Get/SetAllocationSetting()
+   helpers.go                          # Export jsonStr → JsonStr for reuse
+
+ internal/tui/components/
+   cmdpalette/cmdpalette.go + test     # Command palette (: input with autocomplete)
+   allocationmenu/allocationmenu.go + test  # Allocation menu overlay (primaries/none/reset)
+
+ internal/tui/views/
+   node/                               # Node list view
+     model.go, keybindings.go, sort.go, render.go, filter.go, model_test.go
+   shard/                              # Shard list view
+     model.go, keybindings.go, sort.go, render.go, filter.go, model_test.go
+
+ Step-by-step Implementation
+
+ Step 1: ES Client — node.go, shard.go, cluster.go, helpers.go
+
+ Export jsonStr from index.go into helpers.go as JsonStr.
+
+ node.go: Node struct (Name, IP, HeapPercent, RAMPercent, CPU, Load1m, Load5m, Load15m, NodeRole, Master, DiskUsedPercent). ListNodes() calls GET
+ /_cat/nodes?format=json&h=name,ip,heap.percent,ram.percent,cpu,load_1m,load_5m,load_15m,node.role,master,disk.used_percent.
+
+ shard.go: Shard struct (Index, Shard, PriRep, State, Docs, Store, IP, Node). ListShards() calls GET /_cat/shards?format=json&h=index,shard,prirep,state,docs,store,ip,node.
+
+ cluster.go:
+ - GetAllocationSetting() (string, error) — reads from GET /_cluster/settings?flat_settings=true, returns transient.cluster.routing.allocation.enable or "" if default.
+ - SetAllocationSetting(value string) error — PUT /_cluster/settings with {"transient":{"cluster.routing.allocation.enable":"<value>"}}. Empty string sends null to reset.
+
+ All use existing Client.Get/Put methods + JsonStr helper. Tests use httptest.NewServer mocks.
+
+ Step 2: Command Palette — cmdpalette/cmdpalette.go
+
+ Replaces the status bar when active (same 1-line height, no layout shift).
+
+ - New(router *commands.Router) Model
+ - Keystroke handling: on each key, call router.Complete(value). If 1+ match, set ghost text = remaining suffix of first match. Tab appends ghost to input. Enter calls router.Match(value) → emits
+ SubmitMsg{Command: name}. Esc → CancelMsg{}.
+ - Rendering: : <input>|<ghost_dimmed> on StatusBarStyle background, full terminal width.
+
+ Step 3: Node View — views/node/
+
+ Mirror the index view structure exactly:
+
+ - model.go (~200 lines): Model struct with table, nodes, filtered, client, keys, sort, search, pendingAction. Implements full View interface. Name() returns "Nodes".
+ - keybindings.go: Shift+N (name), Shift+C (cpu), Shift+H (heap), Shift+R (ram), Shift+D (disk), m (maintenance), r (refresh), / (search), ? (help), q (quit).
+ - sort.go: natural sort for name, float parse for cpu/heap/ram/disk.
+ - render.go: table rendering + postProcessTable to colorize high values (>80% = red, >60% = yellow). Highlight * master node.
+ - filter.go: filter nodes by name.
+
+ Pressing m sets pendingAction = {Type: "set_allocation"} which App picks up.
+
+ Step 4: Shard View — views/shard/
+
+ Same pattern:
+
+ - model.go (~200 lines): table with shards. Name() returns "Shards".
+ - keybindings.go: Shift+I (index), Shift+S (shard), Shift+N (node), Shift+T (state), r, /, ?, q.
+ - sort.go: string compare for index/node/state, int parse for shard number, ParseSizeToBytes for store.
+ - render.go: colorize state column: STARTED=green, RELOCATING/INITIALIZING=yellow, UNASSIGNED=red. Bold p for primary, dim r for replica.
+ - filter.go: filter by index name or node name.
+
+ Step 5: Allocation Menu — allocationmenu/allocationmenu.go
+
+ Modal overlay with 3 choices:
+ - all (reset) → value ""
+ - primaries → value "primaries"
+ - none → value "none"
+
+ j/k or up/down moves cursor. Enter → SubmitMsg{Value}. Esc → CancelMsg. Shows current setting. Rendered with theme.ModalStyle.
+
+ Step 6: App.go Integration
+
+ New fields: router *commands.Router, cmdPalette cmdpalette.Model, cmdPaletteOn bool, allocationMenu allocationmenu.Model, allocationSetting string (cached).
+
+ NewApp: create router, register index/node/shard commands.
+
+ Update additions:
+ 1. cmdpalette.SubmitMsg → switch viewStack to [newView] based on command name, call Init.
+ 2. cmdpalette.CancelMsg → close palette.
+ 3. allocationmenu.SubmitMsg → call SetAllocationSetting in tea.Cmd, flash result, cache setting.
+ 4. allocationmenu.CancelMsg → close overlay.
+ 5. Route to cmdPalette when cmdPaletteOn (before any other routing).
+ 6. Intercept : key (when not in input mode) → open command palette.
+ 7. Handle "set_allocation" pending action → fetch current setting, then show allocation menu.
+
+ View: when cmdPaletteOn, statusBarView returns cmdPalette.View() instead of normal bar.
+
+ Status bar: when allocationSetting != "", show "alloc: <value>" in yellow on the right side.
+
+ Step 7: Tests
+
+ - ES: node_test.go, shard_test.go, cluster_test.go — mock HTTP, test parsing + errors
+ - cmdpalette_test.go — ghost text, tab completion, submit, cancel
+ - allocationmenu_test.go — cursor movement, submit, cancel
+ - views/node/model_test.go — loaded, sort, maintenance action, refresh, error, help groups
+ - views/shard/model_test.go — loaded, sort, filter, refresh, error
+ - app_test.go additions — command palette open/submit/cancel, view switching, allocation overlay
+
+ Implementation Order
+
+ 1. internal/es/helpers.go + update index.go to use exported JsonStr
+ 2. internal/es/node.go + test
+ 3. internal/es/shard.go + test
+ 4. internal/es/cluster.go + test
+ 5. internal/tui/components/cmdpalette/ + test
+ 6. internal/tui/views/node/ (all files) + test
+ 7. internal/tui/views/shard/ (all files) + test
+ 8. internal/tui/components/allocationmenu/ + test
+ 9. internal/tui/app.go integration + test updates
+
+ Verification
+
+ 1. make test — all tests pass
+ 2. make run — launch TUI, verify:
+   - Press : → command palette appears at bottom
+   - Type no → ghost text "de" appears
+   - Press Tab → completes to "node"
+   - Press Enter → switches to node view with live data
+   - :shard → switches to shard view
+   - :index → back to index view
+   - In node view: press m → allocation menu appears
+   - Select "primaries" → flash message, status bar shows "alloc: primaries"
+   - :node → back to node view, press m → select "all (reset)" → clears status
+ 3. go test ./... -race -cover — coverage ≥60% overall
+
+ 12.0k tokens --> =.=

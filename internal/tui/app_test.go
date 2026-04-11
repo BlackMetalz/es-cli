@@ -30,8 +30,8 @@ func TestNewApp(t *testing.T) {
 	if len(app.viewStack) != 1 {
 		t.Fatal("expected 1 view in stack")
 	}
-	if app.currentView().Name() != "Indices" {
-		t.Fatalf("expected Indices view, got %s", app.currentView().Name())
+	if app.currentView().Name() != "Dashboard" {
+		t.Fatalf("expected Dashboard view, got %s", app.currentView().Name())
 	}
 }
 
@@ -105,6 +105,9 @@ func TestApp_ConfirmOverlay(t *testing.T) {
 	app := NewApp(client, "http://localhost:9200")
 	app.width = 80
 	app.height = 24
+
+	// Switch to index view first
+	app.handleCommand("index")
 	app.currentView().SetSize(80, 24-app.header.Height())
 
 	// Load indices
@@ -199,8 +202,8 @@ func TestApp_ViewStack(t *testing.T) {
 	if len(app.viewStack) != 1 {
 		t.Fatalf("expected 1 view, got %d", len(app.viewStack))
 	}
-	if app.currentView().Name() != "Indices" {
-		t.Fatalf("expected Indices, got %s", app.currentView().Name())
+	if app.currentView().Name() != "Dashboard" {
+		t.Fatalf("expected Dashboard, got %s", app.currentView().Name())
 	}
 }
 
@@ -210,12 +213,10 @@ func TestApp_PushPopView(t *testing.T) {
 	app.width = 80
 	app.height = 24
 
-	// Initially 1 view
-	if len(app.viewStack) != 1 {
-		t.Fatal("expected 1 view")
-	}
+	// Switch to index view first
+	app.handleCommand("index")
 
-	// Simulate pushing detail view via pending action
+	// Load indices
 	app.viewStack[0], _ = app.currentView().Update(indexview.IndicesLoadedMsg{
 		Indices: []es.Index{{Name: "test-idx", Health: "green", Status: "open"}},
 	})

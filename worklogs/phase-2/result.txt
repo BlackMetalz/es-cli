@@ -1,0 +1,7 @@
+Phase 2 done.
+
+  Summary:
+  - :dashboard or :dash — shows 3 styled boxes side-by-side: Overview (health/version/uptime), Nodes (count/disk/heap), Indices (total/docs/disk/shards)
+  - Data fetched from GET /, GET /_cluster/stats, GET /_nodes/stats/jvm
+  - Responsive layout: horizontal at >=80 cols, vertical below
+  - Health colored, uptime formatted as "5d 3h 12m", numbers with commas
