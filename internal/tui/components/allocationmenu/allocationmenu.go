@@ -13,13 +13,14 @@ type CancelMsg struct{}
 
 type choice struct {
 	label string
+	desc  string
 	value string
 }
 
 var choices = []choice{
-	{"all (reset)", ""},
-	{"primaries", "primaries"},
-	{"none", "none"},
+	{"all (default)", "enable all shard allocation", ""},
+	{"primaries", "for restarting elasticsearch instance", "primaries"},
+	{"none", "for maintenance / removing an elasticsearch instance", "none"},
 }
 
 type Model struct {
@@ -64,7 +65,8 @@ func (m Model) View() string {
 		if i == m.cursor {
 			label = theme.HelpKeyStyle.Render(label)
 		}
-		content += cursor + label + "\n"
+		desc := theme.HelpDescStyle.Render(" — " + c.desc)
+		content += cursor + label + desc + "\n"
 	}
 
 	current := "all (default)"
