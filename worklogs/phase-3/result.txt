@@ -1,0 +1,15 @@
+  Phase 3 done. Summary:
+
+  New commands: :ilm / :ilm-policy, :template / :templates / :index-template
+
+  ILM Policies view: table (name, version, hot/warm/cold/delete phases), search, sort, delete with confirm, n creates with 2-pane form (left: fields for each phase, right: live JSON preview)
+
+  Index Templates view: table (name, patterns, priority, shards, replicas, ILM policy), search, sort by name/priority, delete with confirm, n creates with 2-pane form (left: basic fields, right: live JSON preview)
+
+  Context-aware n key: opens the correct create form based on current view (Indices → createindex, ILM → createilm, Templates → createtemplate)
+
+  17 packages, all tests passing.
+
+  Cooked for 17m 3s - ~40k token burned
+
+  --> total 95% token usage for single session to finish this fucking feature.

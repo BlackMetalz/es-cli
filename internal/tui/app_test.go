@@ -54,7 +54,8 @@ func TestApp_OpenCreateIndex(t *testing.T) {
 	client := newTestClient()
 	app := NewApp(client, "http://localhost:9200")
 
-	// Load indices first
+	// Switch to index view first (default is dashboard)
+	app.handleCommand("index")
 	app.viewStack[0], _ = app.currentView().Update(indexview.IndicesLoadedMsg{Indices: nil})
 
 	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}

@@ -1,0 +1,110 @@
+ Phase 3: ILM Policies + Index Templates
+
+ Context
+
+ Add two new views: :ilm for managing Index Lifecycle Policies and :template for managing Index Templates. Both have list view (table) + create form (2-pane: form left, JSON preview right). This covers common ES
+ admin tasks that currently require curl/Kibana.
+
+ New Files (20 total)
+
+ internal/es/
+   ilm.go + ilm_test.go                # ILMPolicy type + List/Create/Delete
+   template.go + template_test.go       # IndexTemplate type + List/Create/Delete
+
+ internal/tui/views/ilm/               # ILM list view
+   model.go, keybindings.go, sort.go, render.go, filter.go, model_test.go
+
+ internal/tui/views/template/           # Index template list view
+   model.go, keybindings.go, sort.go, render.go, filter.go, model_test.go
+
+ internal/tui/components/createilm/     # ILM create form (2-pane)
+   createilm.go + createilm_test.go
+
+ internal/tui/components/createtemplate/ # Template create form (2-pane)
+   createtemplate.go + createtemplate_test.go
+
+ Step 1: ES Client — es/ilm.go + es/template.go
+
+ ILMPolicy struct: Name, Version, ModifiedDate, Phases (map[string]ILMPhase where ILMPhase has MinAge + Actions)
+ - ListILMPolicies() — GET /_ilm/policy, iterate top-level keys
+ - CreateILMPolicy(name, body string) — PUT /_ilm/policy/{name}
+ - DeleteILMPolicy(name string) — DELETE /_ilm/policy/{name}
+
+ IndexTemplate struct: Name, IndexPatterns []string, Priority int, Shards, Replicas, ILMPolicy string
+ - ListIndexTemplates() — GET /_index_template, parse index_templates array
+ - CreateIndexTemplate(name, body string) — PUT /_index_template/{name}
+ - DeleteIndexTemplate(name string) — DELETE /_index_template/{name}
+
+ Step 2: ILM View — views/ilm/
+
+ Table columns: name, version, hot, warm, cold, delete (show min_age or "-")
+ - Keybindings: Shift+N sort by name, d delete, n create, enter view detail, r refresh, / search, ? help, q quit
+ - Filter by policy name
+ - Name() = "ILM Policies"
+ - Delete sets pendingAction {Type: "delete_ilm", Index: policyName}
+
+ Step 3: Index Template View — views/template/
+
+ Table columns: name, index_patterns (comma-joined), priority, shards, replicas, ILM policy
+ - Keybindings: Shift+N sort by name, Shift+P sort by priority, d delete, n create, enter view detail, r refresh, / search, ? help, q quit
+ - Filter by template name or pattern
+ - Name() = "Index Templates"
+ - Delete sets pendingAction {Type: "delete_template", Index: templateName}
+
+ Step 4: ILM Create Form — components/createilm/
+
+ 2-pane overlay (left: form, right: live JSON preview)
+
+ Fields (10 textinputs, Tab navigation):
+ - Policy name (required)
+ - Hot: enabled (y/n), rollover max_age (e.g. "30d"), rollover max_size (e.g. "50gb")
+ - Warm: enabled (y/n), min_age (e.g. "30d")
+ - Cold: enabled (y/n), min_age (e.g. "60d")
+ - Delete: enabled (y/n), min_age (e.g. "90d")
+
+ Messages: SubmitMsg{Name, Body string}, CancelMsg{}
+ buildJSON() constructs policy JSON live for right pane preview.
+
+ Step 5: Template Create Form — components/createtemplate/
+
+ 2-pane overlay (left: form, right: live JSON preview)
+
+ Fields (6 textinputs):
+ - Template name (required)
+ - Index patterns (required, comma-separated)
+ - Priority (default "0")
+ - Shards (default "1")
+ - Replicas (default "1")
+ - ILM policy (optional)
+
+ Messages: SubmitMsg{Name, Body string}, CancelMsg{}
+
+ Step 6: App.go Changes
+
+ 1. Router: register ilm (aliases: ilm-policy) and template (aliases: templates, index-template)
+ 2. handleCommand: add case "ilm" and case "template"
+ 3. New overlay types: overlayCreateILM, overlayCreateTemplate
+ 4. Context-aware n key — dispatch based on currentView().Name():
+   - "Indices" → createindex
+   - "ILM Policies" → createilm
+   - "Index Templates" → createtemplate
+ 5. Form message handlers: SubmitMsg/CancelMsg for both forms
+ 6. Pending action handlers: delete_ilm → client.DeleteILMPolicy(), delete_template → client.DeleteIndexTemplate()
+ 7. Flash messages: "Policy 'x' created/deleted successfully"
+
+ Implementation Order
+
+ 1. es/ilm.go + test, es/template.go + test
+ 2. views/ilm/ (all 6 files) — can use agents in parallel with step 3
+ 3. views/template/ (all 6 files)
+ 4. components/createilm/ + test
+ 5. components/createtemplate/ + test
+ 6. app.go integration + app test updates
+
+ Verification
+
+ 1. go test ./... — all pass
+ 2. make run → :ilm → list policies, n → create form with JSON preview, submit
+ 3. :template → list templates, n → create form, submit
+ 4. Delete with d + confirm
+ 5. Search with /, sort with Shift+N

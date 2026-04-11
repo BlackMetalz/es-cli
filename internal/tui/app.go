@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,15 +11,20 @@ import (
 	"github.com/kienlt/es-cli/internal/tui/commands"
 	"github.com/kienlt/es-cli/internal/tui/components/allocationmenu"
 	"github.com/kienlt/es-cli/internal/tui/components/cmdpalette"
+	"github.com/kienlt/es-cli/internal/tui/components/createilm"
 	"github.com/kienlt/es-cli/internal/tui/components/createindex"
+	"github.com/kienlt/es-cli/internal/tui/components/createtemplate"
 	"github.com/kienlt/es-cli/internal/tui/header"
 	"github.com/kienlt/es-cli/internal/tui/theme"
 	"github.com/kienlt/es-cli/internal/tui/views"
 	dashview "github.com/kienlt/es-cli/internal/tui/views/dashboard"
 	detailview "github.com/kienlt/es-cli/internal/tui/views/detail"
+	ilmview "github.com/kienlt/es-cli/internal/tui/views/ilm"
 	indexview "github.com/kienlt/es-cli/internal/tui/views/index"
+	"github.com/kienlt/es-cli/internal/tui/views/jsonview"
 	nodeview "github.com/kienlt/es-cli/internal/tui/views/node"
 	shardview "github.com/kienlt/es-cli/internal/tui/views/shard"
+	templateview "github.com/kienlt/es-cli/internal/tui/views/template"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -31,6 +37,9 @@ const (
 	overlayConfirm
 	overlayHelp
 	overlayAllocation
+	overlayCreateILM
+	overlayCreateTemplate
+	overlayError
 )
 
 const statusBarHeight = 1
@@ -43,9 +52,11 @@ type App struct {
 	width     int
 	height    int
 
-	overlay       overlayType
-	createIndexFm createindex.Model
-	allocMenu     allocationmenu.Model
+	overlay          overlayType
+	createIndexFm    createindex.Model
+	createILMFm      createilm.Model
+	createTemplateFm createtemplate.Model
+	allocMenu        allocationmenu.Model
 
 	// Command palette
 	cmdPalette   cmdpalette.Model
@@ -57,6 +68,7 @@ type App struct {
 
 	// Status bar
 	flashMsg          string
+	errorPopupMsg     string
 	flashStyle        lipgloss.Style
 	allocationSetting string
 }
@@ -68,6 +80,30 @@ type clusterInfoMsg struct {
 }
 
 type clearFlashMsg struct{}
+
+type flashErrorMsg struct {
+	err error
+}
+
+type editILMMsg struct {
+	Name        string
+	DeleteAfter string
+}
+
+type openCreateTemplateMsg struct {
+	ILMPolicies []string
+	Existing    []createtemplate.ExistingTemplate
+}
+
+type editTemplateMsg struct {
+	Name        string
+	Patterns    string
+	Shards      string
+	Replicas    string
+	ILMPolicy   string
+	ILMPolicies []string
+	Existing    []createtemplate.ExistingTemplate
+}
 
 type allocationSettingMsg struct {
 	Current string
@@ -111,6 +147,8 @@ func newRouter() *commands.Router {
 	r.Register(commands.Command{Name: "node", Aliases: []string{"nodes"}, Description: "List nodes"})
 	r.Register(commands.Command{Name: "shard", Aliases: []string{"shards"}, Description: "List shards"})
 	r.Register(commands.Command{Name: "dashboard", Aliases: []string{"dash"}, Description: "Cluster dashboard"})
+	r.Register(commands.Command{Name: "ilm", Aliases: []string{"ilm-policy"}, Description: "ILM policies"})
+	r.Register(commands.Command{Name: "template", Aliases: []string{"templates", "index-template"}, Description: "Index templates"})
 	return r
 }
 
@@ -128,6 +166,33 @@ func NewApp(client *es.Client, clusterURL string) *App {
 		client:    client,
 		router:    newRouter(),
 	}
+}
+
+func (a *App) fetchExistingTemplates() []createtemplate.ExistingTemplate {
+	templates, err := a.client.ListIndexTemplates()
+	if err != nil {
+		return nil
+	}
+	var existing []createtemplate.ExistingTemplate
+	for _, t := range templates {
+		patterns := strings.Split(t.IndexPatterns, ", ")
+		existing = append(existing, createtemplate.ExistingTemplate{Name: t.Name, Patterns: patterns})
+	}
+	return existing
+}
+
+func (a *App) fetchUserILMPolicies() []string {
+	policies, err := a.client.ListILMPolicies()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, p := range policies {
+		if !strings.HasPrefix(p.Name, ".") && !p.Managed {
+			names = append(names, p.Name)
+		}
+	}
+	return names
 }
 
 func (a *App) fetchClusterInfo() tea.Cmd {
@@ -169,7 +234,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.flashMsg = ""
 		return a, nil
 
+	case flashErrorMsg:
+		a.errorPopupMsg = msg.err.Error()
+		a.overlay = overlayError
+		return a, nil
+
 	case detailview.GoBackMsg:
+		a.popView()
+		return a, nil
+
+	case jsonview.GoBackMsg:
 		a.popView()
 		return a, nil
 
@@ -186,12 +260,52 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, func() tea.Msg {
 			err := a.client.CreateIndex(msg.Name, msg.Shards, msg.Replicas)
 			if err != nil {
-				return indexview.ErrorMsg{Err: err}
+				return flashErrorMsg{err: err}
 			}
 			return indexview.ActionCompleteMsg{Action: "created", Index: indexName}
 		}
 
 	case createindex.CancelMsg:
+		a.overlay = overlayNone
+		return a, nil
+
+	case createilm.SubmitMsg:
+		a.overlay = overlayNone
+		name := msg.Name
+		body := msg.Body
+		action := "created"
+		if msg.Editing {
+			action = "updated"
+		}
+		return a, func() tea.Msg {
+			err := a.client.CreateILMPolicy(name, body)
+			if err != nil {
+				return flashErrorMsg{err: err}
+			}
+			return ilmview.ActionCompleteMsg{Action: action, Policy: name}
+		}
+
+	case createilm.CancelMsg:
+		a.overlay = overlayNone
+		return a, nil
+
+	case createtemplate.SubmitMsg:
+		a.overlay = overlayNone
+		name := msg.Name
+		body := msg.Body
+		action := "created"
+		if msg.Editing {
+			action = "updated"
+		}
+		return a, func() tea.Msg {
+			err := a.client.CreateIndexTemplate(name, body)
+			if err != nil {
+				return flashErrorMsg{err: err}
+			}
+			return templateview.ActionCompleteMsg{Action: action, Template: name}
+		}
+
+	case createtemplate.CancelMsg:
 		a.overlay = overlayNone
 		return a, nil
 
@@ -209,7 +323,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, func() tea.Msg {
 			err := a.client.SetAllocationSetting(value)
 			if err != nil {
-				return indexview.ErrorMsg{Err: err}
+				return flashErrorMsg{err: err}
 			}
 			return allocationSettingMsg{Current: value}
 		}
@@ -226,6 +340,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmd := a.setFlash(fmt.Sprintf("Allocation set to %s", label), theme.StatusBarSuccessStyle)
 		return a, cmd
+
+	case openCreateTemplateMsg:
+		a.overlay = overlayCreateTemplate
+		a.createTemplateFm = createtemplate.New(msg.ILMPolicies, msg.Existing)
+		return a, a.createTemplateFm.Init()
+
+	case editILMMsg:
+		a.overlay = overlayCreateILM
+		a.createILMFm = createilm.NewEdit(msg.Name, msg.DeleteAfter)
+		return a, a.createILMFm.Init()
+
+	case editTemplateMsg:
+		a.overlay = overlayCreateTemplate
+		a.createTemplateFm = createtemplate.NewEdit(msg.Name, msg.Patterns, msg.Shards, msg.Replicas, msg.ILMPolicy, msg.ILMPolicies, msg.Existing)
+		return a, a.createTemplateFm.Init()
 
 	case showAllocationMenuMsg:
 		a.allocationSetting = msg.Current
@@ -247,6 +376,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.createIndexFm, cmd = a.createIndexFm.Update(msg)
 		return a, cmd
 	}
+	if a.overlay == overlayError {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.String() == "enter" || keyMsg.String() == "esc" {
+				a.overlay = overlayNone
+				a.errorPopupMsg = ""
+			}
+		}
+		return a, nil
+	}
 	if a.overlay == overlayHelp {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "esc" || keyMsg.String() == "?" {
@@ -266,10 +404,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.allocMenu, cmd = a.allocMenu.Update(msg)
 		return a, cmd
 	}
+	if a.overlay == overlayCreateILM {
+		var cmd tea.Cmd
+		a.createILMFm, cmd = a.createILMFm.Update(msg)
+		return a, cmd
+	}
+	if a.overlay == overlayCreateTemplate {
+		var cmd tea.Cmd
+		a.createTemplateFm, cmd = a.createTemplateFm.Update(msg)
+		return a, cmd
+	}
 
 	// Handle flash messages from completed actions
 	if msg, ok := msg.(indexview.ActionCompleteMsg); ok {
 		flashText := fmt.Sprintf("Index '%s' %s successfully", msg.Index, msg.Action)
+		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
+		var viewCmd tea.Cmd
+		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
+		return a, tea.Batch(cmd, viewCmd)
+	}
+	if msg, ok := msg.(ilmview.ActionCompleteMsg); ok {
+		flashText := fmt.Sprintf("Policy '%s' %s successfully", msg.Policy, msg.Action)
+		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
+		var viewCmd tea.Cmd
+		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
+		return a, tea.Batch(cmd, viewCmd)
+	}
+	if msg, ok := msg.(templateview.ActionCompleteMsg); ok {
+		flashText := fmt.Sprintf("Template '%s' %s successfully", msg.Template, msg.Action)
 		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
 		var viewCmd tea.Cmd
 		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
@@ -285,9 +447,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cmdPalette = cmdpalette.New(a.router, a.width)
 				return a, a.cmdPalette.Init()
 			case "n":
-				a.overlay = overlayCreateIndex
-				a.createIndexFm = createindex.New()
-				return a, a.createIndexFm.Init()
+				switch a.currentView().Name() {
+				case "Indices":
+					a.overlay = overlayCreateIndex
+					a.createIndexFm = createindex.New()
+					return a, a.createIndexFm.Init()
+				case "ILM Policies":
+					a.overlay = overlayCreateILM
+					a.createILMFm = createilm.New()
+					return a, a.createILMFm.Init()
+				case "Index Templates":
+					return a, func() tea.Msg {
+						return openCreateTemplateMsg{
+							ILMPolicies: a.fetchUserILMPolicies(),
+							Existing:    a.fetchExistingTemplates(),
+						}
+					}
+				}
 			case "?":
 				a.overlay = overlayHelp
 				return a, nil
@@ -319,6 +495,10 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		v = shardview.New(a.client)
 	case "dashboard":
 		v = dashview.New(a.client)
+	case "ilm":
+		v = ilmview.New(a.client)
+	case "template":
+		v = templateview.New(a.client)
 	default:
 		return a, nil
 	}
@@ -334,7 +514,102 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 		a.pushView(dv)
 		return a, dv.Init()
 
-	case "close", "open", "delete":
+	case "view_ilm_detail":
+		name := pa.Index
+		client := a.client
+		jv := jsonview.New("ILM: "+name, func() tea.Msg {
+			data, err := client.GetILMPolicy(name)
+			if err != nil {
+				return jsonview.ErrorMsg{Err: err}
+			}
+			return jsonview.DataLoadedMsg{Data: data}
+		})
+		jv.SetSize(a.width, a.viewHeight())
+		a.pushView(jv)
+		return a, jv.Init()
+
+	case "view_template_detail":
+		name := pa.Index
+		client := a.client
+		jv := jsonview.New("Template: "+name, func() tea.Msg {
+			data, err := client.GetIndexTemplate(name)
+			if err != nil {
+				return jsonview.ErrorMsg{Err: err}
+			}
+			return jsonview.DataLoadedMsg{Data: data}
+		})
+		jv.SetSize(a.width, a.viewHeight())
+		a.pushView(jv)
+		return a, jv.Init()
+
+	case "edit_ilm":
+		name := pa.Index
+		client := a.client
+		return a, func() tea.Msg {
+			data, err := client.GetILMPolicy(name)
+			if err != nil {
+				return flashErrorMsg{err: err}
+			}
+			msg := editILMMsg{Name: name}
+			var raw map[string]interface{}
+			if json.Unmarshal(data, &raw) == nil {
+				if pd, ok := raw[name].(map[string]interface{}); ok {
+					if p, ok := pd["policy"].(map[string]interface{}); ok {
+						if phases, ok := p["phases"].(map[string]interface{}); ok {
+							if del, ok := phases["delete"].(map[string]interface{}); ok {
+								if v, ok := del["min_age"].(string); ok {
+									msg.DeleteAfter = v
+								}
+							}
+						}
+					}
+				}
+			}
+			return msg
+		}
+
+	case "edit_template":
+		name := pa.Index
+		client := a.client
+		return a, func() tea.Msg {
+			data, err := client.GetIndexTemplate(name)
+			if err != nil {
+				return flashErrorMsg{err: err}
+			}
+			msg := editTemplateMsg{Name: name}
+			var raw map[string]interface{}
+			if json.Unmarshal(data, &raw) == nil {
+				if templates, ok := raw["index_templates"].([]interface{}); ok && len(templates) > 0 {
+					if entry, ok := templates[0].(map[string]interface{}); ok {
+						if it, ok := entry["index_template"].(map[string]interface{}); ok {
+							if patterns, ok := it["index_patterns"].([]interface{}); ok {
+								var pats []string
+								for _, p := range patterns {
+									pats = append(pats, es.JsonStr(p))
+								}
+								msg.Patterns = strings.Join(pats, ",")
+							}
+							if tmpl, ok := it["template"].(map[string]interface{}); ok {
+								if settings, ok := tmpl["settings"].(map[string]interface{}); ok {
+									if idx, ok := settings["index"].(map[string]interface{}); ok {
+										msg.Shards = es.JsonStr(idx["number_of_shards"])
+										msg.Replicas = es.JsonStr(idx["number_of_replicas"])
+										if lc, ok := idx["lifecycle"].(map[string]interface{}); ok {
+											msg.ILMPolicy = es.JsonStr(lc["name"])
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			msg.ILMPolicies = a.fetchUserILMPolicies()
+			msg.Existing = a.fetchExistingTemplates()
+			return msg
+		}
+
+	case "close", "open", "delete", "delete_ilm", "delete_template":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index
@@ -370,9 +645,21 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "delete":
 				err = a.client.DeleteIndex(indexName)
 				actionStr = "deleted"
+			case "delete_ilm":
+				err = a.client.DeleteILMPolicy(indexName)
+				if err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return ilmview.ActionCompleteMsg{Action: "deleted", Policy: indexName}
+			case "delete_template":
+				err = a.client.DeleteIndexTemplate(indexName)
+				if err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return templateview.ActionCompleteMsg{Action: "deleted", Template: indexName}
 			}
 			if err != nil {
-				return indexview.ErrorMsg{Err: err}
+				return flashErrorMsg{err: err}
 			}
 			return indexview.ActionCompleteMsg{Action: actionStr, Index: indexName}
 		}
@@ -386,9 +673,20 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) confirmOverlayView() string {
+	action := a.confirmAction
+	resource := "index"
+	switch action {
+	case "delete_ilm":
+		action = "delete"
+		resource = "ILM policy"
+	case "delete_template":
+		action = "delete"
+		resource = "index template"
+	}
+
 	return theme.ModalStyle.Render(
 		theme.ModalTitleStyle.Render("Confirm") + "\n\n" +
-			"Are you sure you want to " + a.confirmAction + " index '" + a.confirmIndex + "'?\n\n" +
+			"Are you sure you want to " + action + " " + resource + " '" + a.confirmIndex + "'?\n\n" +
 			theme.HelpKeyStyle.Render("y") + theme.HelpDescStyle.Render("/") + theme.HelpKeyStyle.Render("N"),
 	)
 }
@@ -444,6 +742,22 @@ func (a *App) View() string {
 		overlay = a.confirmOverlayView()
 	case overlayAllocation:
 		overlay = a.allocMenu.View()
+	case overlayCreateILM:
+		overlay = a.createILMFm.View()
+	case overlayCreateTemplate:
+		overlay = a.createTemplateFm.View()
+	case overlayError:
+		// Wrap long error text
+		maxW := a.width - 20
+		if maxW < 40 {
+			maxW = 40
+		}
+		errText := lipgloss.NewStyle().Width(maxW).Foreground(theme.ColorRed).Render(a.errorPopupMsg)
+		overlay = theme.ModalStyle.Render(
+			theme.ModalTitleStyle.Render("Error") + "\n\n" +
+				errText + "\n\n" +
+				theme.HelpDescStyle.Render("Press ") + theme.HelpKeyStyle.Render("Enter") + theme.HelpDescStyle.Render(" or ") + theme.HelpKeyStyle.Render("Esc") + theme.HelpDescStyle.Render(" to close"),
+		)
 	}
 
 	if overlay != "" {
