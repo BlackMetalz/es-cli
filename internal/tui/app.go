@@ -7,12 +7,17 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kienlt/es-cli/internal/es"
+	"github.com/kienlt/es-cli/internal/tui/commands"
+	"github.com/kienlt/es-cli/internal/tui/components/allocationmenu"
+	"github.com/kienlt/es-cli/internal/tui/components/cmdpalette"
 	"github.com/kienlt/es-cli/internal/tui/components/createindex"
 	"github.com/kienlt/es-cli/internal/tui/header"
 	"github.com/kienlt/es-cli/internal/tui/theme"
 	"github.com/kienlt/es-cli/internal/tui/views"
 	detailview "github.com/kienlt/es-cli/internal/tui/views/detail"
 	indexview "github.com/kienlt/es-cli/internal/tui/views/index"
+	nodeview "github.com/kienlt/es-cli/internal/tui/views/node"
+	shardview "github.com/kienlt/es-cli/internal/tui/views/shard"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -24,27 +29,35 @@ const (
 	overlayCreateIndex
 	overlayConfirm
 	overlayHelp
+	overlayAllocation
 )
 
 const statusBarHeight = 1
 
 type App struct {
 	header    header.Model
-	viewStack []views.View // stack of views for back navigation
+	viewStack []views.View
 	client    *es.Client
+	router    *commands.Router
 	width     int
 	height    int
 
 	overlay       overlayType
 	createIndexFm createindex.Model
+	allocMenu     allocationmenu.Model
+
+	// Command palette
+	cmdPalette   cmdpalette.Model
+	cmdPaletteOn bool
 
 	// Confirm overlay state
 	confirmAction string
 	confirmIndex  string
 
-	// Status bar flash message
-	flashMsg   string
-	flashStyle lipgloss.Style
+	// Status bar
+	flashMsg          string
+	flashStyle        lipgloss.Style
+	allocationSetting string
 }
 
 type clusterInfoMsg struct {
@@ -54,6 +67,14 @@ type clusterInfoMsg struct {
 }
 
 type clearFlashMsg struct{}
+
+type allocationSettingMsg struct {
+	Current string
+}
+
+type showAllocationMenuMsg struct {
+	Current string
+}
 
 func (a *App) currentView() views.View {
 	return a.viewStack[len(a.viewStack)-1]
@@ -72,9 +93,23 @@ func (a *App) popView() {
 	}
 }
 
+func (a *App) switchView(v views.View) {
+	v.SetSize(a.width, a.viewHeight())
+	a.viewStack = []views.View{v}
+	a.syncHeader()
+}
+
 func (a *App) syncHeader() {
 	a.header.ViewName = a.currentView().Name()
 	a.header.HelpGroups = a.currentView().HelpGroups()
+}
+
+func newRouter() *commands.Router {
+	r := commands.NewRouter()
+	r.Register(commands.Command{Name: "index", Aliases: []string{"indices"}, Description: "List indices"})
+	r.Register(commands.Command{Name: "node", Aliases: []string{"nodes"}, Description: "List nodes"})
+	r.Register(commands.Command{Name: "shard", Aliases: []string{"shards"}, Description: "List shards"})
+	return r
 }
 
 func NewApp(client *es.Client, clusterURL string) *App {
@@ -89,6 +124,7 @@ func NewApp(client *es.Client, clusterURL string) *App {
 		header:    h,
 		viewStack: []views.View{idxView},
 		client:    client,
+		router:    newRouter(),
 	}
 }
 
@@ -119,6 +155,7 @@ func (a *App) setFlash(msg string, style lipgloss.Style) tea.Cmd {
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Global messages
 	switch msg := msg.(type) {
 	case clusterInfoMsg:
 		a.header.ClusterName = msg.Name
@@ -155,6 +192,51 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case createindex.CancelMsg:
 		a.overlay = overlayNone
 		return a, nil
+
+	case cmdpalette.SubmitMsg:
+		a.cmdPaletteOn = false
+		return a.handleCommand(msg.Command)
+
+	case cmdpalette.CancelMsg:
+		a.cmdPaletteOn = false
+		return a, nil
+
+	case allocationmenu.SubmitMsg:
+		a.overlay = overlayNone
+		value := msg.Value
+		return a, func() tea.Msg {
+			err := a.client.SetAllocationSetting(value)
+			if err != nil {
+				return indexview.ErrorMsg{Err: err}
+			}
+			return allocationSettingMsg{Current: value}
+		}
+
+	case allocationmenu.CancelMsg:
+		a.overlay = overlayNone
+		return a, nil
+
+	case allocationSettingMsg:
+		a.allocationSetting = msg.Current
+		label := "reset to default"
+		if msg.Current != "" {
+			label = msg.Current
+		}
+		cmd := a.setFlash(fmt.Sprintf("Allocation set to %s", label), theme.StatusBarSuccessStyle)
+		return a, cmd
+
+	case showAllocationMenuMsg:
+		a.allocationSetting = msg.Current
+		a.overlay = overlayAllocation
+		a.allocMenu = allocationmenu.New(msg.Current)
+		return a, nil
+	}
+
+	// Route to command palette
+	if a.cmdPaletteOn {
+		var cmd tea.Cmd
+		a.cmdPalette, cmd = a.cmdPalette.Update(msg)
+		return a, cmd
 	}
 
 	// Route to overlays
@@ -163,7 +245,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.createIndexFm, cmd = a.createIndexFm.Update(msg)
 		return a, cmd
 	}
-
 	if a.overlay == overlayHelp {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "esc" || keyMsg.String() == "?" {
@@ -172,12 +253,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	}
-
 	if a.overlay == overlayConfirm {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			return a.handleConfirmKey(keyMsg)
 		}
 		return a, nil
+	}
+	if a.overlay == overlayAllocation {
+		var cmd tea.Cmd
+		a.allocMenu, cmd = a.allocMenu.Update(msg)
+		return a, cmd
 	}
 
 	// Handle flash messages from completed actions
@@ -193,6 +278,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if !a.currentView().IsInputMode() {
 			switch keyMsg.String() {
+			case ":":
+				a.cmdPaletteOn = true
+				a.cmdPalette = cmdpalette.New(a.router, a.width)
+				return a, a.cmdPalette.Init()
 			case "n":
 				a.overlay = overlayCreateIndex
 				a.createIndexFm = createindex.New()
@@ -217,6 +306,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
+	var v views.View
+	switch name {
+	case "index":
+		v = indexview.New(a.client)
+	case "node":
+		v = nodeview.New(a.client)
+	case "shard":
+		v = shardview.New(a.client)
+	default:
+		return a, nil
+	}
+	a.switchView(v)
+	return a, v.Init()
+}
+
 func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) {
 	switch pa.Type {
 	case "view_detail":
@@ -230,6 +335,12 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index
 		return a, nil
+
+	case "set_allocation":
+		return a, func() tea.Msg {
+			current, _ := a.client.GetAllocationSetting()
+			return showAllocationMenuMsg{Current: current}
+		}
 	}
 	return a, nil
 }
@@ -279,6 +390,10 @@ func (a *App) confirmOverlayView() string {
 }
 
 func (a *App) statusBarView() string {
+	if a.cmdPaletteOn {
+		return a.cmdPalette.View()
+	}
+
 	viewName := theme.ViewNameStyle.Render(a.currentView().Name())
 	contextInfo := a.currentView().StatusInfo()
 
@@ -288,8 +403,11 @@ func (a *App) statusBarView() string {
 	}
 
 	right := ""
+	if a.allocationSetting != "" {
+		right += theme.HealthYellowStyle.Render("alloc: "+a.allocationSetting) + "  "
+	}
 	if a.flashMsg != "" {
-		right = a.flashStyle.Render(a.flashMsg) + " "
+		right += a.flashStyle.Render(a.flashMsg) + " "
 	}
 
 	leftWidth := lipgloss.Width(left)
@@ -320,6 +438,8 @@ func (a *App) View() string {
 		overlay = a.createIndexFm.View()
 	case overlayConfirm:
 		overlay = a.confirmOverlayView()
+	case overlayAllocation:
+		overlay = a.allocMenu.View()
 	}
 
 	if overlay != "" {

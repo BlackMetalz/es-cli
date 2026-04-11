@@ -1,0 +1,23 @@
+⏺ Phase 1 done. Here's the summary:
+
+  Phase 1 delivered:
+
+  ┌────────────────────────────────────────────────────────────┬────────┐
+  │                          Feature                           │ Status │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ Command palette (:) with autocomplete                      │ Done   │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ :index / :node / :shard routing                            │ Done   │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ Node view (table, sort, search, filter)                    │ Done   │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ Shard view (table, sort, search, filter, colorized states) │ Done   │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ Node maintenance (m → allocation menu)                     │ Done   │
+  ├────────────────────────────────────────────────────────────┼────────┤
+  │ Allocation status in status bar                            │ Done   │
+  └────────────────────────────────────────────────────────────┴────────┘
+
+  New files created: 20 files across es/, tui/components/, tui/views/node/, tui/views/shard/
+
+  All 12 packages pass tests. app.go stays at 460 lines. No file exceeds 400 lines.

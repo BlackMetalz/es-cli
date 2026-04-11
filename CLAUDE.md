@@ -34,7 +34,7 @@ The app reads credentials from `~/.es-cli.auth` as `{"username":"password"}`. ES
 
 Uses Bubble Tea's Elm architecture (Model → Update → View):
 
-- **`App`** (`app.go`) — root model. Manages view stack, header, overlays (create-index, confirm, help), status bar with flash messages. Routes messages to overlays or the active view. No type assertions on views — uses the `View` interface exclusively.
+- **`App`** (`app.go`) — root model. Manages view stack, header, overlays (create-index, confirm, help, allocation menu), command palette, status bar with flash messages. Routes messages to overlays or the active view. No type assertions on views — uses the `View` interface exclusively. Command palette (`:`) switches between views via the command router.
 - **`help.go`** — full-screen help overlay renderer (K9s-style grouped columns).
 - **`overlay.go`** — utility for compositing overlay text onto background at x,y coordinates.
 
@@ -53,10 +53,18 @@ Uses Bubble Tea's Elm architecture (Model → Update → View):
   - `filter.go` — system index hiding, search filter
   - `render.go` — table rendering, column widths, health colorization, selected row highlight
 - **`views/detail/`** — index detail view with 3 tabs (Settings, Mappings, Aliases). JSON pretty-print with syntax coloring. Scrollable viewport.
+- **`views/node/`** — node list view. Same split pattern (model/keybindings/sort/render/filter). Shows CPU, heap, RAM, disk, load, role, master status. `m` key triggers maintenance (allocation menu).
+- **`views/shard/`** — shard list view. Shows index, shard, prirep, state, docs, store, ip, node. Colorized state (STARTED=green, UNASSIGNED=red).
 
 ### Command Router (`internal/tui/commands/`)
 
-- **`router.go`** — command registry with match and autocomplete for Phase 1 (`:index`, `:node`, `:shard`).
+- **`router.go`** — command registry with match and autocomplete. Registered commands: `index`, `node`, `shard`. Supports aliases (e.g., `nodes` → `node`).
+
+### Components (`internal/tui/components/`)
+
+- **`cmdpalette/`** — command palette (`:` input). Replaces status bar when active. Ghost text autocomplete with Tab. Enter executes, Esc cancels.
+- **`allocationmenu/`** — modal overlay for cluster routing allocation (primaries/none/reset). Used from node view via `m` key.
+- **`createindex/`** — modal form for creating a new index.
 
 ### ES client (`internal/es/`)
 
@@ -64,13 +72,16 @@ Thin HTTP wrapper around ES REST API:
 - `client.go` — HTTP client with basic auth, `GetClusterInfo()` (name, version, health)
 - `index.go` — index CRUD (list, create, open, close, delete), size parsing/formatting
 - `detail.go` — fetch index settings, mappings, aliases
+- `node.go` — list nodes via `_cat/nodes`
+- `shard.go` — list shards via `_cat/shards`
+- `cluster.go` — get/set cluster routing allocation setting
+- `helpers.go` — shared `JsonStr()` helper for JSON parsing
 
 ### Other packages
 
 - **`internal/auth/`** — loads credentials from JSON file on disk.
 - **`internal/tui/header/`** — K9s-style header with cluster info (left) + grouped keybindings (right). Dynamic height based on help groups.
 - **`internal/tui/theme/`** — centralized color scheme and lipgloss styles.
-- **`internal/tui/components/createindex/`** — modal form for creating a new index.
 
 ## Key Patterns
 
@@ -80,3 +91,5 @@ Thin HTTP wrapper around ES REST API:
 - **ES operations** run as Bubble Tea commands (closures returning `tea.Msg`), keeping the UI non-blocking.
 - **Post-process rendering** — health column colors and selected row highlight are applied after the bubbles table renders, because the table's `runewidth.Truncate` is not ANSI-aware.
 - **Flash messages** — `App.setFlash()` shows a timed status bar message (e.g., "Index 'x' deleted successfully") that auto-clears after 4 seconds.
+- **Command palette** — `:` opens a command input that replaces the status bar. Autocomplete via `commands.Router.Complete()`. Tab completes ghost text. Enter dispatches to `handleCommand()` which calls `switchView()`.
+- **Allocation status** — when cluster routing allocation is not default, shown in yellow on the status bar right side.

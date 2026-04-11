@@ -32,24 +32,17 @@ func (c *Client) ListIndices() ([]Index, error) {
 	indices := make([]Index, len(raw))
 	for i, r := range raw {
 		indices[i] = Index{
-			Health:    jsonStr(r["health"]),
-			Status:    jsonStr(r["status"]),
-			Name:      jsonStr(r["index"]),
-			Pri:       jsonStr(r["pri"]),
-			Rep:       jsonStr(r["rep"]),
-			DocsCount: jsonStr(r["docs.count"]),
-			StoreSize: jsonStr(r["pri.store.size"]),
+			Health:    JsonStr(r["health"]),
+			Status:    JsonStr(r["status"]),
+			Name:      JsonStr(r["index"]),
+			Pri:       JsonStr(r["pri"]),
+			Rep:       JsonStr(r["rep"]),
+			DocsCount: JsonStr(r["docs.count"]),
+			StoreSize: JsonStr(r["pri.store.size"]),
 		}
 	}
 
 	return indices, nil
-}
-
-func jsonStr(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", v)
 }
 
 func (c *Client) CreateIndex(name string, shards, replicas int) error {
