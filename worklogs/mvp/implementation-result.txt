@@ -1,0 +1,17 @@
+⏺ MVP phase hoàn thành. Tóm tắt:
+
+  Đã implement:
+  - Auth: ~/.es-cli.auth parser với validation đầy đủ
+  - ES Client: HTTP client với basic auth, 4 operations (list/create/close/delete index)
+  - TUI: K9s-style với bubbletea
+    - Header 5 dòng (logo, cluster URL, view name, keybindings, separator)
+    - Index list view với table, sort by name (Shift+I) / size (Shift+S)
+    - Close index (Shift+C) + Delete index (Shift+D) với confirmation
+    - Create index (n) popup với 3 fields (name, shards, replicas)
+    - Esc cancel, q quit
+  - Docker: ES 8.17.0 + Kibana single-node, Makefile commands
+  - View interface: Extensible cho future phases (:node, :shard, :dashboard)
+
+  Tests: 43+ tests pass, coverage 84-100% trên auth/es/components/header.
+
+  Để chạy: Tạo file ~/.es-cli.auth với {"elastic":"elastic"}, chạy make dev-init rồi make run.

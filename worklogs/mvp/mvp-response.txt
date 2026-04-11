@@ -1,0 +1,315 @@
+       The bubbles library has table, textinput, help, key, viewport, list - exactly what we need. Now I have enough information to design the plan.
+
+       ---
+       ES-CLI MVP Implementation Plan
+
+       1. TUI Library Decision: Bubble Tea
+
+       Choice: charmbracelet/bubbletea + charmbracelet/bubbles + charmbracelet/lipgloss
+
+       Rationale:
+       - Already available in the local Go module cache (v1.3.10)
+       - Elm architecture (Model-Update-View) provides clean separation, very testable
+       - bubbles/table gives us the index list table out of the box
+       - bubbles/textinput for the create-index popup fields
+       - bubbles/help for the keybinding help bar in the header
+       - lipgloss for K9s-style styling (colored borders, status bars)
+       - K9s itself uses tview, but Bubble Tea is more modern, more composable, and far easier to unit test because the entire state is in the Model and the View is a pure function
+
+       2. ES Client Decision: Custom HTTP Client (not official SDK)
+
+       Rationale:
+       - The MVP only needs 3 endpoints: _cat/indices?v, PUT /{index}, POST /{index}/_close, DELETE /{index}
+       - The official go-elasticsearch client adds complexity and a large dependency for trivial HTTP calls
+       - A thin custom client is easier to mock in tests and keeps the binary small
+       - Future phases add more endpoints incrementally, and a thin abstraction is easy to extend
+       - When Phase 5 (OpenSearch) arrives, the same HTTP client works with a different base URL
+
+       3. Project Structure
+
+       es-cli/
+       ├── cmd/
+       │   └── es-cli/
+       │       └── main.go                  # Entry point: load auth, create ES client, start TUI
+       ├── internal/
+       │   ├── auth/
+       │   │   ├── auth.go                  # Parse ~/.es-cli.auth, validate format
+       │   │   └── auth_test.go
+       │   ├── es/
+       │   │   ├── client.go                # HTTP client wrapper (base URL, basic auth, JSON)
+       │   │   ├── client_test.go
+       │   │   ├── index.go                 # ListIndices, CreateIndex, CloseIndex, DeleteIndex
+       │   │   └── index_test.go
+       │   └── tui/
+       │       ├── app.go                   # Root Bubble Tea model (dispatches to views)
+       │       ├── app_test.go
+       │       ├── theme.go                 # K9s-style colors, border styles via lipgloss
+       │       ├── header/
+       │       │   ├── header.go            # Header component (logo, help keys, cluster info)
+       │       │   └── header_test.go
+       │       ├── views/
+       │       │   ├── index/
+       │       │   │   ├── model.go         # Index list view model (table, sort state)
+       │       │   │   ├── model_test.go
+       │       │   │   ├── keybindings.go   # Shift+I, Shift+S, Shift+C, Shift+D, n, esc
+       │       │   │   └── keybindings_test.go
+       │       │   └── view.go              # Shared view interface/contract
+       │       └── components/
+       │           ├── confirm/
+       │           │   ├── confirm.go       # Confirmation modal (yes/no prompt)
+       │           │   └── confirm_test.go
+       │           └── createindex/
+       │               ├── createindex.go   # Create index popup (3 text inputs)
+       │               └── createindex_test.go
+       ├── progress/
+       │   └── mvp.md                       # Phase tracking
+       ├── Makefile                          # Docker ES + Kibana commands
+       ├── docker-compose.yml                # ES 8.19.14 + Kibana single node
+       ├── go.mod
+       ├── go.sum
+       └── README.md
+
+       Key architectural decisions:
+
+       - internal/tui/views/view.go defines a View interface that all views (index, node, shard, dashboard, ILM) will implement. This is the extensibility point for future phases.
+       - internal/tui/app.go is the root model that holds the current active view and the header. It routes key messages to the active view. Future :node, :shard commands just register a new view.
+       - Components under components/ are reusable modals/popups shared across views.
+
+       4. View Interface (Extensibility Contract)
+
+       // internal/tui/views/view.go
+       package views
+
+       import tea "github.com/charmbracelet/bubbletea"
+
+       type View interface {
+           Init() tea.Cmd
+           Update(msg tea.Msg) (View, tea.Cmd)
+           View() string
+           Name() string           // e.g., "index", "node", "shard"
+           HelpKeys() []key.Binding // keys to display in header
+       }
+
+       Every future phase view (node, shard, dashboard, ILM) implements this interface. The root app.go model holds a currentView View and delegates to it.
+
+       5. Implementation Order (Step by Step)
+
+       Step 1: Project scaffold and Makefile (no TUI yet)
+
+       Files: go.mod, Makefile, docker-compose.yml, cmd/es-cli/main.go (skeleton)
+
+       - go mod init github.com/es-cli/es-cli
+       - Dependencies: bubbletea, bubbles, lipgloss
+       - docker-compose.yml:
+         - elasticsearch:8.19.14 with discovery.type=single-node, xpack.security.enabled=true, ELASTIC_PASSWORD=elastic, ES_JAVA_OPTS=-Xms512m -Xmx512m, container memory limit 2GB, platform linux/amd64 (works on M1
+        via Rosetta emulation; alternatively use the official multi-arch image which supports arm64)
+         - kibana:8.19.14 linked to ES, ELASTICSEARCH_HOSTS=https://es01:9200
+         - Both on same Docker network
+       - Makefile targets: make dev-init (docker compose up -d), make dev-start, make dev-stop, make dev-destroy
+       - For macOS M1 vs Ubuntu: the official Elastic Docker images are multi-arch since 8.x, so the same compose file works. The only difference is that on macOS, localhost is used to reach the container, while on
+        Linux, host.docker.internal may not exist (but localhost also works for Docker port-forwarding). No special handling needed.
+
+       Step 2: Auth module
+
+       Files: internal/auth/auth.go, internal/auth/auth_test.go
+
+       - LoadAuth(path string) (username, password string, err error)
+       - Read file, unmarshal JSON as map[string]string
+       - Validate: exactly one key-value pair, both non-empty strings
+       - Error messages: file not found, invalid JSON, invalid format
+       - Tests: valid file, missing file, invalid JSON, empty values, multiple entries (which to pick in MVP - just take the first/only entry)
+
+       Step 3: ES HTTP client
+
+       Files: internal/es/client.go, internal/es/client_test.go
+
+       - Client struct: baseURL, username, password, httpClient *http.Client
+       - NewClient(baseURL, username, password string) *Client
+       - Skip TLS verification (ES 8.x default uses self-signed certs) or accept a custom CA - for MVP, skip TLS verification with a flag
+       - Methods return raw data; parsing is done in domain-specific files
+       - Tests use httptest.NewServer to mock ES responses
+
+       Step 4: Index operations
+
+       Files: internal/es/index.go, internal/es/index_test.go
+
+       - type Index struct { Health, Status, Name string; Pri, Rep, DocsCount int; PriStoreSize string }
+       - ListIndices() ([]Index, error) - calls GET /_cat/indices?v&format=json&h=health,status,index,pri,rep,docs.count,pri.store.size
+         - Using format=json instead of parsing text output - much cleaner
+       - CreateIndex(name string, shards, replicas int) error - PUT /{name} with JSON body
+       - CloseIndex(name string) error - POST /{name}/_close
+       - DeleteIndex(name string) error - DELETE /{name}
+       - Tests: mock each endpoint response, test error handling, test JSON parsing
+
+       Step 5: TUI theme and header
+
+       Files: internal/tui/theme.go, internal/tui/header/header.go, internal/tui/header/header_test.go
+
+       - theme.go: lipgloss styles for K9s look (dark background, green/yellow/red for health, blue borders, cyan highlights)
+       - header.go: renders 5-line header block
+         - Line 1: Logo/title "es-cli" + cluster connection info
+         - Line 2: Current view name (e.g., "Indices")
+         - Line 3-4: Available keybindings for current view
+         - Line 5: Separator line
+       - The header accepts helpKeys []key.Binding and viewName string to render dynamically based on active view
+
+       Step 6: Index list view (the main view)
+
+       Files: internal/tui/views/index/model.go, internal/tui/views/index/keybindings.go, internal/tui/views/view.go
+
+       - Uses bubbles/table for the index list
+       - Model state: table table.Model, indices []es.Index, sortField string, sortAsc bool, err error, loading bool
+       - Init(): fires a tea.Cmd that calls client.ListIndices()
+       - Update(): handles key events for sort (Shift+I, Shift+S), open create popup (n), open confirm for close (Shift+C) / delete (Shift+D)
+       - View(): renders the table
+       - Sorting: by name (alphabetical) or by size (parse size strings like "10kb", "1.2mb" to bytes for comparison)
+       - Tests: test sort logic, test Update with key messages, test View output
+
+       Step 7: Confirmation modal
+
+       Files: internal/tui/components/confirm/confirm.go, internal/tui/components/confirm/confirm_test.go
+
+       - Overlay-style popup: "Are you sure you want to [close/delete] index 'my-index'? (y/N)"
+       - Model with action string, indexName string, confirmed bool
+       - On 'y': returns confirmed message; on 'n'/Esc: returns cancelled message
+       - Rendered as a centered box via lipgloss Place()
+
+       Step 8: Create index popup
+
+       Files: internal/tui/components/createindex/createindex.go, internal/tui/components/createindex/createindex_test.go
+
+       - Three textinput.Model fields: index name, number_of_shards (default "1"), number_of_replicas (default "1")
+       - Tab to move between fields, Enter to submit, Esc to cancel
+       - Validation: name non-empty, shards/replicas are positive integers
+       - Rendered as centered popup box
+
+       Step 9: Root app model (orchestrator)
+
+       Files: internal/tui/app.go, internal/tui/app_test.go
+
+       - App struct: header, currentView View, overlay Model (for modals), esClient *es.Client, width/height int
+       - Update(): if overlay is active, route messages to overlay first; otherwise route to current view
+       - View(): render header + current view; if overlay, render overlay on top using lipgloss
+       - Window resize handling: propagate to all components
+       - This is where future :command routing will live (Phase 1 adds a command input bar)
+
+       Step 10: Main entry point
+
+       File: cmd/es-cli/main.go
+
+       - Load auth from ~/.es-cli.auth
+       - Create ES client with https://localhost:9200 (default, can be overridden via env var or flag later)
+       - Create App model, pass client
+       - tea.NewProgram(app, tea.WithAltScreen()).Run()
+       - Handle errors (auth failure, connection failure) with clear messages before TUI starts
+
+       Step 11: Progress tracking
+
+       File: progress/mvp.md
+
+       6. Makefile Design
+
+       .PHONY: dev-init dev-start dev-stop dev-destroy build test lint
+
+       dev-init:
+        docker compose up -d
+
+       dev-start:
+        docker compose start
+
+       dev-stop:
+        docker compose stop
+
+       dev-destroy:
+        docker compose down -v
+
+       build:
+        go build -o es-cli ./cmd/es-cli
+
+       test:
+        go test ./... -v -race -cover
+
+       lint:
+        golangci-lint run ./...
+
+       run: build
+        ./es-cli
+
+       7. Docker Compose Design
+
+       Key points for docker-compose.yml:
+       - ES 8.19.14 image: docker.elastic.co/elasticsearch/elasticsearch:8.19.14
+       - Single node: discovery.type=single-node
+       - Security enabled with basic auth: ELASTIC_PASSWORD=elastic, xpack.security.enabled=true
+       - Disable HTTPS for simplicity in dev (or handle self-signed): xpack.security.http.ssl.enabled=false
+       - Heap: ES_JAVA_OPTS=-Xms512m -Xmx512m
+       - Container memory limit: deploy.resources.limits.memory: 2G
+       - Port: 9200:9200
+       - Kibana: docker.elastic.co/kibana/kibana:8.19.14, port 5601:5601, env ELASTICSEARCH_HOSTS=http://es01:9200, ELASTICSEARCH_USERNAME=kibana_system (or use elastic for simplicity in dev)
+
+       8. Testing Strategy
+
+       ┌────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────┬─────────────────────────────┐
+       │           Layer            │                                            Approach                                             │            Tool             │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ auth                       │ Unit tests with temp files (valid, invalid, missing)                                            │ testing + os.CreateTemp     │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ es/client                  │ httptest.NewServer to mock ES HTTP responses                                                    │ net/http/httptest           │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ es/index                   │ Mock server returns known JSON, verify parsed structs                                           │ httptest                    │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ tui/views/index            │ Test Update() with synthetic tea.KeyMsg, verify model state changes (sort field, loading state) │ testing                     │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ tui/views/index            │ Test View() output contains expected strings                                                    │ testing + string assertions │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ tui/components/confirm     │ Test y/n/Esc key handling, verify confirmed/cancelled state                                     │ testing                     │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ tui/components/createindex │ Test field navigation, validation, submit                                                       │ testing                     │
+       ├────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────┤
+       │ tui/app                    │ Test view switching, overlay activation                                                         │ testing                     │
+       └────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────┴─────────────────────────────┘
+
+       Key principle: Bubble Tea models are pure functions (Update takes msg, returns model + cmd). This makes them trivially testable without any mocking framework - just construct a model, call Update with a
+       message, assert the new state.
+
+       For ES client testing, define a Client interface rather than using the concrete struct directly, so views can accept a mock in tests:
+
+       type ESClient interface {
+           ListIndices() ([]Index, error)
+           CreateIndex(name string, shards, replicas int) error
+           CloseIndex(name string) error
+           DeleteIndex(name string) error
+       }
+
+       9. Key Architectural Decisions for Extensibility
+
+       1. View interface: Every screen (index, node, shard, dashboard, ILM) implements the same interface. Adding a new view in Phase 1 means creating a new package under internal/tui/views/ and registering it in
+       the app router.
+       2. Command bar (future-ready): In Phase 1, a :command input bar will be added to app.go. The app will maintain a registry of map[string]ViewFactory where ViewFactory is func(client ESClient) View. For MVP,
+       the index view is the only view and loads automatically.
+       3. ES client interface: The ESClient interface will grow as new endpoints are needed. Each phase adds methods. The interface is the contract between TUI and backend.
+       4. Component reuse: The confirm modal and createindex popup pattern will be reused for node maintenance dialogs (Phase 1), ILM creation (Phase 3), etc.
+       5. Auth evolution: In Phase 4 (multi-cluster), the auth module will need to support the richer JSON format. Design the initial LoadAuth to return a struct that can be extended:
+       type Credential struct {
+           Username string
+           Password string
+           Host     string  // defaults to "https://localhost:9200" in MVP
+       }
+
+       10. Potential Challenges
+
+       - Size parsing for sort: pri.store.size returns human-readable strings like "4.5kb", "1.2gb". Need a parser to convert to bytes for numeric sorting. This should be a utility function with thorough tests.
+       - ES 8.x TLS: By default ES 8.x enables HTTPS with self-signed certs. For dev, disable it in docker-compose (xpack.security.http.ssl.enabled=false). For production use, the client should support custom CA or
+        skip-verify option.
+       - Terminal resize: Bubble Tea sends tea.WindowSizeMsg. All components must handle dynamic resizing. Use lipgloss Width() / Height() to adapt layouts.
+       - Table column widths: The bubbles/table needs column widths. Calculate dynamically based on terminal width or use fixed-ratio columns.
+
+       Critical Files for Implementation
+
+       - /Users/kienlt/data/github.com/es-cli/internal/tui/app.go - Root TUI orchestrator that ties everything together; dictates how views, header, and overlays compose
+       - /Users/kienlt/data/github.com/es-cli/internal/tui/views/index/model.go - The primary MVP view; index list table with sorting, the core user-facing feature
+       - /Users/kienlt/data/github.com/es-cli/internal/es/client.go - ES HTTP client abstraction; the interface defined here is the contract for all TUI-to-ES communication
+       - /Users/kienlt/data/github.com/es-cli/internal/auth/auth.go - Auth file parsing; must be correct before anything else works
+       - /Users/kienlt/data/github.com/es-cli/docker-compose.yml - Dev environment; needed to test anything against a real ES instance
+
+  ⎿  Done (7 tool uses · 17.4k tokens · 2m 33s)

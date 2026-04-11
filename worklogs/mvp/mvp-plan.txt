@@ -1,0 +1,39 @@
+Prompt:
+
+       I need to design an implementation plan for the MVP phase of an Elasticsearch CLI TUI tool called "es-cli". This is a brand new Go project — no code exists yet.
+
+       MVP Requirements:
+
+       1. TUI Layout: K9s-style TUI with header (5 lines for buttons + help commands) and main content area
+       2. Auth: Read credentials from ~/.es-cli.auth file with format {"username":"password"}. Validate format, error if invalid.
+       3. CLI entry: Simply run ./es-cli to start
+       4. Index list view: List all indices using _cat/indices?v API with fields: health, status, index, pri, rep, docs.count, pri.store.size
+         - Default sort by name
+         - Shift+I: sort by name
+         - Shift+S: sort by size
+       5. Close index: Shift+C with confirmation prompt
+       6. Delete index: Shift+D with confirmation prompt
+       7. Create index: Press "n" opens popup with fields: index name, number_of_shards (default 1), number_of_replicas (default 1). Uses PUT /index-name with settings.
+       8. ESC: back/cancel
+       9. Dev environment: Makefile with commands to init/start/stop ES 8.19.14 single node + Kibana via Docker. Default creds elastic:elastic. Resource limits: 512MB heap, max 2GB container. Support macOS M1 +
+       Ubuntu.
+       10. Unit tests: All code must have unit tests.
+
+       Tech Stack:
+
+       - Go
+       - TUI library (need to choose: bubbletea/tview/etc)
+       - K9s-style design
+
+       Design questions to address:
+
+       1. Project structure (cmd/, internal/, pkg/ layout)
+       2. TUI library choice (bubbletea vs tview — bubbletea is more modern and fits K9s style)
+       3. ES client approach (official go-elasticsearch or custom HTTP client)
+       4. How to structure the TUI components (header, table, popup/modal)
+       5. Auth file parsing
+       6. Makefile for Docker ES + Kibana setup
+       7. Testing strategy (mock ES responses, test TUI components)
+
+       Please provide a detailed, step-by-step implementation plan with file structure and implementation order. Consider that future phases will add more views (:node, :shard, :dashboard, :ILM) so the architecture
+        must be extensible.

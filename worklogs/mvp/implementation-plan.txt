@@ -1,0 +1,152 @@
+ ES-CLI MVP Phase Implementation Plan
+
+ Context
+
+ Xây dựng CLI TUI tool cho Elasticsearch (K9s-style) bằng Go. Project mới hoàn toàn, chưa có code. MVP phase cần: TUI hiển thị index list, CRUD index, auth từ file, Docker dev environment.
+
+ Tech Decisions
+
+ ┌───────────┬──────────────────────────────────────────────┬────────────────────────────────────────────────────────┐
+ │ Decision  │                    Choice                    │                         Lý do                          │
+ ├───────────┼──────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+ │ TUI lib   │ bubbletea + bubbles + lipgloss               │ Elm architecture, dễ test, modern, composable          │
+ ├───────────┼──────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+ │ ES client │ Custom HTTP client (không dùng official SDK) │ MVP chỉ cần 4 endpoints, nhẹ, dễ mock                  │
+ ├───────────┼──────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+ │ Testing   │ httptest.NewServer + pure function testing   │ Bubbletea models là pure functions, trivially testable │
+ └───────────┴──────────────────────────────────────────────┴────────────────────────────────────────────────────────┘
+
+ Project Structure
+
+ es-cli/
+ ├── cmd/es-cli/main.go              # Entry point
+ ├── internal/
+ │   ├── auth/
+ │   │   ├── auth.go                  # Parse ~/.es-cli.auth
+ │   │   └── auth_test.go
+ │   ├── es/
+ │   │   ├── client.go                # HTTP client + ESClient interface
+ │   │   ├── client_test.go
+ │   │   ├── index.go                 # ListIndices, CreateIndex, CloseIndex, DeleteIndex
+ │   │   └── index_test.go
+ │   └── tui/
+ │       ├── app.go                   # Root model (routes to views + overlays)
+ │       ├── app_test.go
+ │       ├── theme.go                 # K9s-style lipgloss styles
+ │       ├── header/
+ │       │   ├── header.go            # 5-line header (logo, view name, keybindings)
+ │       │   └── header_test.go
+ │       ├── views/
+ │       │   ├── view.go              # View interface (extensible for future phases)
+ │       │   └── index/
+ │       │       ├── model.go         # Index list table + sort + actions
+ │       │       ├── model_test.go
+ │       │       ├── keybindings.go
+ │       │       └── keybindings_test.go
+ │       └── components/
+ │           ├── confirm/
+ │           │   ├── confirm.go       # Yes/No confirmation modal
+ │           │   └── confirm_test.go
+ │           └── createindex/
+ │               ├── createindex.go   # Create index popup (name, shards, replicas)
+ │               └── createindex_test.go
+ ├── progress/mvp.md
+ ├── Makefile
+ ├── docker-compose.yml
+ ├── go.mod
+ └── go.sum
+
+ View Interface (extensibility cho future phases)
+
+ type View interface {
+     Init() tea.Cmd
+     Update(msg tea.Msg) (View, tea.Cmd)
+     View() string
+     Name() string
+     HelpKeys() []key.Binding
+ }
+
+ Implementation Steps (theo thứ tự)
+
+ Step 1: Project scaffold + Makefile + Docker
+
+ - go mod init, dependencies: bubbletea, bubbles, lipgloss
+ - docker-compose.yml: ES 8.19.14 + Kibana, single-node, ELASTIC_PASSWORD=elastic, xpack.security.http.ssl.enabled=false, heap 512MB, container max 2GB
+ - Makefile: dev-init, dev-start, dev-stop, dev-destroy, build, test, run
+
+ Step 2: Auth module
+
+ - LoadAuth(path) → Credential{Username, Password, Host}
+ - Validate: đúng JSON format {"username":"password"}, exactly 1 key-value
+ - Tests: valid, missing file, invalid JSON, empty values
+
+ Step 3: ES HTTP client + interface
+
+ - ESClient interface cho mockable testing
+ - Concrete Client struct: baseURL, basic auth, skip TLS verify (dev)
+ - Tests với httptest.NewServer
+
+ Step 4: Index operations
+
+ - ListIndices() → GET /_cat/indices?v&format=json&h=health,status,index,pri,rep,docs.count,pri.store.size
+ - CreateIndex(name, shards, replicas) → PUT /{name}
+ - CloseIndex(name) → POST /{name}/_close
+ - DeleteIndex(name) → DELETE /{name}
+ - Size parser utility: "4.5kb" → bytes (cho sort)
+
+ Step 5: TUI theme + header
+
+ - K9s-style colors: dark bg, green/yellow/red health, blue borders
+ - Header 5 lines: logo + cluster info, view name, keybindings, separator
+
+ Step 6: Index list view
+
+ - bubbles/table cho index list
+ - Sort: Shift+I (name), Shift+S (size)
+ - Actions: Shift+C (close), Shift+D (delete), n (create), Esc (back)
+
+ Step 7: Confirmation modal
+
+ - Centered overlay: "Are you sure you want to [close/delete] index 'name'? (y/N)"
+
+ Step 8: Create index popup
+
+ - 3 text inputs: name, shards (default 1), replicas (default 1)
+ - Tab between fields, Enter submit, Esc cancel
+
+ Step 9: Root app model
+
+ - Orchestrates header + currentView + overlay
+ - Window resize handling
+ - Future: command bar routing (:index, :node, etc.)
+
+ Step 10: Main entry point
+
+ - Load auth → create ES client → start TUI with tea.WithAltScreen()
+
+ Step 11: Progress tracking
+
+ - progress/mvp.md
+
+ Docker Compose Key Config
+
+ - ES: docker.elastic.co/elasticsearch/elasticsearch:8.19.14
+ - discovery.type=single-node, xpack.security.enabled=true, xpack.security.http.ssl.enabled=false
+ - ES_JAVA_OPTS=-Xms512m -Xmx512m, memory limit 2GB
+ - Kibana: docker.elastic.co/kibana/kibana:8.19.14, port 5601
+ - Multi-arch images → works on macOS M1 + Ubuntu
+
+ Lưu ý
+
+ - Size parsing cần thorough tests (kb, mb, gb, tb)
+ - ES 8.x mặc định bật HTTPS → disable trong docker-compose cho dev
+ - Terminal resize → tất cả components phải handle tea.WindowSizeMsg
+ - Table column widths → tính dynamic theo terminal width
+
+ Verification
+
+ 1. make test — all unit tests pass
+ 2. make dev-init — ES + Kibana start successfully
+ 3. make run — TUI hiển thị index list từ ES
+ 4. Test keybindings: sort, create, close, delete index
+ 5. Test auth validation: invalid file → clear error message
