@@ -39,3 +39,8 @@ seed-data:
 NUM ?= 100
 generate-indices:
 	./scripts/generate-indices.sh $(NUM)
+
+INDEX ?= app-logs
+INTERVAL ?= 1000
+stream-data:
+	./scripts/stream-data.sh $(INDEX) $(INTERVAL)

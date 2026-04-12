@@ -26,7 +26,16 @@ go test ./internal/es/ -run TestFormatBytes -v
 
 ## Auth Setup
 
-The app reads credentials from `~/.es-cli.auth` as `{"username":"password"}`. ES URL defaults to `http://localhost:9200`, overridable via `ES_URL` env var.
+Multi-cluster auth file at `~/.es-cli.auth`:
+```json
+{
+  "local": {"username": "elastic", "password": "elastic", "url": "http://localhost:9200"},
+  "staging": {"username": "admin", "password": "secret", "url": "http://staging:9200"}
+}
+```
+- Multiple clusters: shows selection UI on startup. `--cluster <name>` skips selection.
+- Single cluster: auto-connects.
+- Run `make dev-auth` to create sample auth file for local dev.
 
 ## Architecture
 
@@ -56,15 +65,22 @@ Uses Bubble Tea's Elm architecture (Model → Update → View):
 - **`views/node/`** — node list view. Same split pattern (model/keybindings/sort/render/filter). Shows CPU, heap, RAM, disk, load, role, master status. `m` key triggers maintenance (allocation menu).
 - **`views/shard/`** — shard list view. Shows index, shard, prirep, state, docs, store, ip, node. Colorized state (STARTED=green, UNASSIGNED=red).
 
+- **`views/ilm/`** — ILM policy list view. Table: name, version, delete after. Create/edit/delete policies. Hides system+managed by default.
+- **`views/template/`** — index template list view. Table: name, patterns, shards, replicas, ILM policy. Create/edit with ILM autocomplete + duplicate detection.
+- **`views/query/`** — discovery/log viewer (Kibana Discover style). Index selection → query builder → results table with follow mode. Sub-files: model.go, update.go, view.go, helpers.go, querybuilder.go, keybindings.go.
+- **`views/jsonview/`** — generic JSON detail viewer. Scrollable viewport, used by ILM/template detail views.
+
 ### Command Router (`internal/tui/commands/`)
 
-- **`router.go`** — command registry with match and autocomplete. Registered commands: `index`, `node`, `shard`. Supports aliases (e.g., `nodes` → `node`).
+- **`router.go`** — command registry with match and autocomplete. Registered commands: `index`, `node`, `shard`, `dashboard`, `ilm`, `template`, `discovery`. Supports aliases.
 
 ### Components (`internal/tui/components/`)
 
-- **`cmdpalette/`** — command palette (`:` input). Replaces status bar when active. Ghost text autocomplete with Tab. Enter executes, Esc cancels.
+- **`cmdpalette/`** — command palette (`:` input). Replaces status bar when active. Ghost text autocomplete with Tab (works with aliases). Enter executes, Esc cancels.
 - **`allocationmenu/`** — modal overlay for cluster routing allocation (primaries/none/reset). Used from node view via `m` key.
 - **`createindex/`** — modal form for creating a new index.
+- **`createilm/`** — ILM policy create/edit form (Name + Delete After). Edit mode has read-only name.
+- **`createtemplate/`** — index template create/edit form with 2-pane (form + JSON preview). ILM policy fuzzy autocomplete. Duplicate name/pattern warnings.
 
 ### ES client (`internal/es/`)
 
@@ -75,7 +91,11 @@ Thin HTTP wrapper around ES REST API:
 - `node.go` — list nodes via `_cat/nodes`
 - `shard.go` — list shards via `_cat/shards`
 - `cluster.go` — get/set cluster routing allocation setting
-- `helpers.go` — shared `JsonStr()` helper for JSON parsing
+- `dashboard.go` — aggregated cluster stats for dashboard view
+- `ilm.go` — ILM policy CRUD
+- `template.go` — index template CRUD
+- `search.go` — document search, field mapping extraction for discovery view
+- `helpers.go` — shared `JsonStr()`, `jsonInt()`, `jsonFloat()` helpers
 
 ### Other packages
 

@@ -9,6 +9,7 @@ type KeyMap struct {
 	SortByNode  key.Binding
 	SortByDocs  key.Binding
 	SortByStore key.Binding
+	Explain     key.Binding
 	ToggleAll   key.Binding
 	Refresh     key.Binding
 	Search      key.Binding
@@ -41,6 +42,10 @@ func DefaultKeyMap() KeyMap {
 		SortByStore: key.NewBinding(
 			key.WithKeys("O"),
 			key.WithHelp("Shift+O", "sort by store"),
+		),
+		Explain: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "explain alloc"),
 		),
 		ToggleAll: key.NewBinding(
 			key.WithKeys("a"),

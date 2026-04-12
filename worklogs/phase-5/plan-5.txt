@@ -1,0 +1,189 @@
+ Phase 5: Query Log (Kibana Discover style)
+
+ Context
+
+ Add a :query view that works like a TUI version of Kibana Discover. Users select an index pattern, see auto-detected fields, query with simple field:value syntax, view results in a table, and optionally follow
+ new logs in real-time.
+
+ Decisions
+
+ - Kibana Discover style flow: select index → query → table → follow
+ - Configurable follow interval (1s/2s/5s/10s)
+ - Simple key:value query syntax → translated to ES query_string
+
+ User Flow
+
+ Step 1: :query → Index Pattern Selection
+   > logs-*
+     metrics-*
+     app-*
+   enter: select
+
+ Step 2: Query View (main view)
+   Query: level:error AND service:api          [Follow: OFF]
+   Index: logs-*  (1,234 hits)
+
+   @timestamp            level   service   message
+   2024-01-01 10:00:01   ERROR   api       Connection refused
+   2024-01-01 10:00:02   WARN    api       Retry attempt 3
+   2024-01-01 10:00:03   ERROR   api       Timeout after 30s
+
+   /: query • f: follow (2s) • c: columns • r: refresh • esc: back
+
+ ES APIs
+
+ 1. List indices — reuse ListIndices() to get index names for pattern selection
+ 2. Get mapping — GET /{index}/_mapping → extract field names + types for column picker
+ 3. Search — POST /{index}/_search with body:
+ {
+   "query": {"query_string": {"query": "level:error", "default_operator": "AND"}},
+   "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}],
+   "size": 200,
+   "_source": ["@timestamp", "level", "service", "message"]
+ }
+ 4. Follow mode — same search but with search_after using last doc's sort value, polled via tea.Tick
+
+ New Files
+
+ internal/es/
+   search.go + search_test.go           # SearchDocs(), GetFieldMapping()
+
+ internal/tui/views/query/
+   model.go                             # Main query view (~350 lines)
+   keybindings.go                       # Keys for query mode
+   indexselect.go                       # Index pattern selection sub-view
+   columnpicker.go                      # Column picker overlay
+   model_test.go
+
+ Step 1: ES Client — es/search.go
+
+ type FieldMapping struct {
+     Name string
+     Type string // "date", "keyword", "text", "long", "float", etc.
+ }
+
+ type SearchHit struct {
+     Source map[string]interface{}
+     Sort   []interface{} // for search_after pagination
+ }
+
+ type SearchResult struct {
+     Total int64
+     Took  int
+     Hits  []SearchHit
+ }
+
+ func (c *Client) GetFieldMapping(index string) ([]FieldMapping, error)
+ // GET /{index}/_mapping → parse properties, flatten nested fields
+
+ func (c *Client) SearchDocs(index, query string, fields []string, size int, searchAfter []interface{}) (*SearchResult, error)
+ // POST /{index}/_search
+ // If query is empty → match_all
+ // If query has ":" → query_string
+ // fields → _source filter
+ // searchAfter → for follow/pagination
+
+ Step 2: Query View — views/query/
+
+ The query view has 3 states/sub-views:
+
+ State 1: Index Selection (indexselect.go)
+
+ - List of unique index patterns (group by prefix: logs-*, metrics-*, or individual indices)
+ - j/k navigate, Enter selects, / to filter
+ - After selection → fetch mapping → transition to State 2
+
+ State 2: Query Results (main state in model.go)
+
+ - Top bar: query input + index name + hit count + follow status
+ - Table: shows selected columns from search results
+ - Default columns: auto-detect @timestamp + first 3-4 keyword/text fields from mapping
+ - Keybindings:
+   - / — edit query (opens input at top, Enter executes, Esc cancels)
+   - f — toggle follow mode (cycles: OFF → 1s → 2s → 5s → 10s → OFF)
+   - c — open column picker overlay
+   - r — manual refresh
+   - enter — expand selected row (show full document JSON)
+   - esc — back to index selection
+   - ? — help, q — quit
+
+ State 3: Column Picker (columnpicker.go)
+
+ - Overlay listing all fields from mapping
+ - Space to toggle field on/off, Enter to confirm
+ - Shows current selected fields with checkmarks
+
+ Follow Mode
+
+ - Uses tea.Tick with configurable interval
+ - Each tick calls SearchDocs with search_after from last result's sort value
+ - New docs prepended/appended to table
+ - Status bar shows [Follow: 2s] when active
+ - f cycles through: OFF → 1s → 2s → 5s → 10s → OFF
+
+ Model struct
+
+ type Model struct {
+     client    *es.Client
+     keys      KeyMap
+
+     // Index selection state
+     selectingIndex bool
+     indices        []string
+     indexCursor    int
+     indexFilter    string
+
+     // Query state
+     index          string
+     query          string
+     editing        bool       // query input active
+     queryInput     textinput.Model
+     columns        []string   // selected field names
+     allFields      []es.FieldMapping
+
+     // Results
+     table          table.Model
+     results        *es.SearchResult
+     lastSort       []interface{} // for search_after
+
+     // Follow
+     followInterval time.Duration // 0 = off
+
+     // Column picker
+     pickingColumns bool
+     columnCursor   int
+     columnSelected map[string]bool
+
+     // Standard
+     width, height  int
+     loading        bool
+     err            error
+     pendingAction  *views.PendingAction
+ }
+
+ Step 3: App.go Changes
+
+ 1. Register command: r.Register(commands.Command{Name: "query", Aliases: []string{"logs", "discover"}, Description: "Query logs"})
+ 2. Add case: case "query": v = queryview.New(a.client)
+ 3. Import: queryview "github.com/kienlt/es-cli/internal/tui/views/query"
+
+ Implementation Order
+
+ 1. es/search.go + test — SearchDocs, GetFieldMapping
+ 2. views/query/keybindings.go
+ 3. views/query/indexselect.go — index pattern selection sub-component
+ 4. views/query/columnpicker.go — field toggle overlay
+ 5. views/query/model.go — main query view with all states
+ 6. views/query/model_test.go
+ 7. app.go — register command + import
+
+ Verification
+
+ 1. go test ./... — all pass
+ 2. :query → shows index list, select logs-*
+ 3. See auto-detected columns with latest docs
+ 4. / → type level:error → Enter → filtered results
+ 5. f → cycles follow intervals, new docs appear
+ 6. c → toggle columns on/off
+ 7. enter → expand doc to see full JSON
+ 8. esc → back to index selection

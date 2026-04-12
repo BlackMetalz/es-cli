@@ -16,6 +16,17 @@ type Shard struct {
 	Node   string
 }
 
+// AllocationExplain returns the allocation explanation for an unassigned shard.
+// If index and shard are provided, explains that specific shard. Otherwise explains the first unassigned.
+func (c *Client) AllocationExplain(index string, shardNum string, primary bool) ([]byte, error) {
+	body := fmt.Sprintf(`{"index":"%s","shard":%s,"primary":%t}`, index, shardNum, primary)
+	data, err := c.Post("/_cluster/allocation/explain", body)
+	if err != nil {
+		return nil, fmt.Errorf("allocation explain failed: %w", err)
+	}
+	return data, nil
+}
+
 func (c *Client) ListShards() ([]Shard, error) {
 	data, err := c.Get("/_cat/shards?format=json&h=index,shard,prirep,state,docs,store,ip,node")
 	if err != nil {

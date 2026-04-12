@@ -23,6 +23,7 @@ import (
 	indexview "github.com/kienlt/es-cli/internal/tui/views/index"
 	"github.com/kienlt/es-cli/internal/tui/views/jsonview"
 	nodeview "github.com/kienlt/es-cli/internal/tui/views/node"
+	queryview "github.com/kienlt/es-cli/internal/tui/views/query"
 	shardview "github.com/kienlt/es-cli/internal/tui/views/shard"
 	templateview "github.com/kienlt/es-cli/internal/tui/views/template"
 
@@ -149,6 +150,7 @@ func newRouter() *commands.Router {
 	r.Register(commands.Command{Name: "dashboard", Aliases: []string{"dash"}, Description: "Cluster dashboard"})
 	r.Register(commands.Command{Name: "ilm", Aliases: []string{"ilm-policy"}, Description: "ILM policies"})
 	r.Register(commands.Command{Name: "template", Aliases: []string{"templates", "index-template"}, Description: "Index templates"})
+	r.Register(commands.Command{Name: "discovery", Description: "Query logs"})
 	return r
 }
 
@@ -500,6 +502,8 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		v = ilmview.New(a.client)
 	case "template":
 		v = templateview.New(a.client)
+	case "discovery":
+		v = queryview.New(a.client)
 	default:
 		return a, nil
 	}
@@ -542,6 +546,25 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 		jv.SetSize(a.width, a.viewHeight())
 		a.pushView(jv)
 		return a, jv.Init()
+
+	case "explain_shard":
+		// pa.Index format: "index_name|shard_num|primary_bool"
+		parts := strings.SplitN(pa.Index, "|", 3)
+		if len(parts) == 3 {
+			idx, shardN, primary := parts[0], parts[1], parts[2] == "true"
+			client := a.client
+			jv := jsonview.New("Shard Explain: "+idx+"["+shardN+"]", func() tea.Msg {
+				data, err := client.AllocationExplain(idx, shardN, primary)
+				if err != nil {
+					return jsonview.ErrorMsg{Err: err}
+				}
+				return jsonview.DataLoadedMsg{Data: data}
+			})
+			jv.SetSize(a.width, a.viewHeight())
+			a.pushView(jv)
+			return a, jv.Init()
+		}
+		return a, nil
 
 	case "edit_ilm":
 		name := pa.Index

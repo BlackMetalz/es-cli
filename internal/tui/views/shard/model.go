@@ -182,6 +182,26 @@ func (m *Model) handleKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		m.toggleSort(SortByStore)
 		return m, nil
 
+	case key.Matches(msg, m.keys.Explain):
+		row := m.table.SelectedRow()
+		if row != nil && len(row) >= 4 {
+			index := strings.TrimSpace(row[0])
+			shardN := strings.TrimSpace(row[1])
+			prirep := strings.TrimSpace(row[2])
+			state := strings.TrimSpace(row[3])
+			if state == "UNASSIGNED" {
+				primary := "true"
+				if prirep == "r" {
+					primary = "false"
+				}
+				m.pendingAction = &views.PendingAction{Type: "explain_shard", Index: index + "|" + shardN + "|" + primary}
+			} else {
+				// For non-UNASSIGNED shards, show index detail
+				m.pendingAction = &views.PendingAction{Type: "view_detail", Index: index}
+			}
+		}
+		return m, nil
+
 	case key.Matches(msg, m.keys.ToggleAll):
 		m.showAll = !m.showAll
 		m.applyFilter()
@@ -321,6 +341,7 @@ func (m *Model) HelpGroups() []views.HelpGroup {
 			Title: "General",
 			Bindings: []key.Binding{
 				m.keys.Search,
+				m.keys.Explain,
 				m.keys.Refresh,
 				m.keys.ToggleAll,
 				m.keys.Help,

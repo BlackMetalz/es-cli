@@ -1,1 +1,3 @@
 - Bubble Tea rất khó khăn trong việc chỉnh sửa UI như hiển thị text ở giữa cột, phải mất 1 đống promt mới nhận ra vấn đề này. Vấn đề này hoàn toàn không xuất hiện khi sử dụng tview. Holy fucking shit!
+- Raw query ex: 
+  raw> level:ERROR AND service:api  |  message:"timeout" OR status_code:500

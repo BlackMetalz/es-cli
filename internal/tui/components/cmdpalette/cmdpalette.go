@@ -79,9 +79,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if val != "" {
 		matches := m.router.Complete(val)
 		if len(matches) > 0 {
-			name := matches[0].Name
-			if strings.HasPrefix(name, val) && name != val {
-				m.ghost = name[len(val):]
+			// Check name first, then aliases for ghost text
+			cmd := matches[0]
+			if strings.HasPrefix(cmd.Name, val) && cmd.Name != val {
+				m.ghost = cmd.Name[len(val):]
+			} else {
+				for _, alias := range cmd.Aliases {
+					if strings.HasPrefix(alias, val) && alias != val {
+						m.ghost = alias[len(val):]
+						break
+					}
+				}
 			}
 		}
 	}
@@ -94,7 +102,7 @@ func (m Model) View() string {
 
 	ghost := ""
 	if m.ghost != "" {
-		ghost = lipgloss.NewStyle().Foreground(theme.ColorCyan).Faint(true).Render(m.ghost)
+		ghost = lipgloss.NewStyle().Foreground(theme.ColorCyan).Render(m.ghost)
 	}
 
 	content := " " + inputView + ghost

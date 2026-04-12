@@ -1,0 +1,165 @@
+⏺ All 18 packages pass. Phase 5 complete.
+
+  Summary:
+
+  - :query (aliases: :logs, :discover) — Kibana Discover-style log viewer
+  - Step 1: Select index from list (j/k, /, Enter)
+  - Step 2: Auto-detects fields from mapping, picks default columns (@timestamp + keyword/text fields)
+  - Query: / opens query input, type level:error AND service:api, Enter to search
+  - Follow mode: f cycles OFF → 1s → 2s → 5s → 10s → OFF, auto-refreshes with search_after
+  - Column picker: c opens overlay, space toggles fields on/off
+  - Expand: Enter on a row shows full doc (pending action → jsonview)
+  - ES client: SearchDocs() with query_string + search_after, GetFieldMapping() with nested field flattening, GetIndexNames()
+  - 13 tests for the query view + 5 for ES search layer
+
+✻ Sautéed for 10m 15s
+
+-----
+
+     Query Builder Popup for Discovery View
+
+     Context
+
+     Currently the discovery view's / opens a raw text input where users must type ES query_string syntax (e.g., level:error AND service:api). This is error-prone. Add a visual query builder popup that lets users
+     pick fields from a dropdown, enter values, and combine with AND/OR — no syntax knowledge needed.
+
+     User Flow
+
+     Press / in query view → Query Builder popup opens:
+
+       ╭─ Query Builder ────────────────────────────────╮
+       │                                                 │
+       │  1. level       = ERROR                    [x]  │
+       │  AND                                            │
+       │  2. service     = api                      [x]  │
+       │                                                 │
+       │  + Add filter    (operator: AND / OR)           │
+       │                                                 │
+       │  enter: apply • d: delete • a: AND/OR • esc: cancel │
+       ╰─────────────────────────────────────────────────╯
+
+     Steps to add a filter:
+     1. Press + or n → field selector appears (j/k, type to filter, enter to pick)
+     2. Enter value in text input
+     3. Filter added to list
+     4. a toggles operator between AND/OR
+     5. d deletes selected filter
+     6. Enter builds query string and executes search
+     7. Esc cancels without applying
+
+     Design
+
+     New file: views/query/querybuilder.go (~250 lines)
+
+     A sub-component managed by the query view model (similar to column picker).
+
+     type FilterCondition struct {
+         Field    string
+         Value    string
+         Operator string // "AND" or "OR" (between this and next)
+     }
+
+     type queryBuilderState int
+     const (
+         qbList        // viewing/navigating filter list
+         qbSelectField // picking a field from allFields
+         qbEnterValue  // typing value for selected field
+     )
+
+     // State added to Model:
+     // - buildingQuery bool
+     // - qbState queryBuilderState
+     // - qbFilters []FilterCondition
+     // - qbCursor int (selected filter in list)
+     // - qbFieldCursor int (field selector cursor)
+     // - qbFieldFilter string
+     // - qbValueInput textinput.Model
+     // - qbOperator string ("AND" default)
+
+     Changes to existing files
+
+     views/query/model.go — add qb fields to Model struct, add textinput for value
+
+     views/query/update.go — in handleNormalKey, change / to open query builder instead of raw input. Add handleQueryBuilderKey method.
+
+     views/query/view.go — add viewQueryBuilder() render method, show as overlay when buildingQuery is true.
+
+     views/query/helpers.go — add buildQueryString(filters []FilterCondition) string that converts filters to ES query_string: level:ERROR AND service:api
+
+     Key interactions in query builder
+
+     ┌───────────────┬────────────┬──────────────────────────────────────────────┐
+     │     State     │    Key     │                    Action                    │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ j/k        │ navigate filters                             │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ n/+        │ add new filter → go to qbSelectField         │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ d          │ delete selected filter                       │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ a          │ toggle AND/OR on selected filter             │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ enter      │ apply filters → build query → execute search │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbList        │ esc        │ cancel, close popup                          │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbSelectField │ j/k        │ navigate field list                          │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbSelectField │ type chars │ filter field names                           │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbSelectField │ enter      │ pick field → go to qbEnterValue              │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbSelectField │ esc        │ cancel → back to qbList                      │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbEnterValue  │ type       │ enter value                                  │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbEnterValue  │ enter      │ confirm → add filter → back to qbList        │
+     ├───────────────┼────────────┼──────────────────────────────────────────────┤
+     │ qbEnterValue  │ esc        │ cancel → back to qbList                      │
+     └───────────────┴────────────┴──────────────────────────────────────────────┘
+
+     Query string generation
+
+     func buildQueryString(filters []FilterCondition) string {
+         // level:ERROR AND service:api OR host:web-1
+         var parts []string
+         for i, f := range filters {
+             parts = append(parts, f.Field+":"+f.Value)
+             if i < len(filters)-1 {
+                 parts = append(parts, f.Operator)
+             }
+         }
+         return strings.Join(parts, " ")
+     }
+
+     Keep raw input as fallback
+
+     The / key opens the query builder. But also add Shift+/ (or :) to open raw query input for advanced users who know ES syntax.
+
+     Files Modified
+
+     - views/query/model.go — add qb state fields to Model struct
+     - views/query/update.go — change / handler, add handleQueryBuilderKey
+     - views/query/view.go — add viewQueryBuilder() overlay
+     - views/query/helpers.go — add buildQueryString, filterFieldsByPrefix
+     - views/query/keybindings.go — add RawQuery binding for raw input fallback
+
+     Implementation Order
+
+     1. Add qb state fields to Model struct + textinput in constructor
+     2. Add viewQueryBuilder() render in view.go
+     3. Add handleQueryBuilderKey() in update.go with 3 sub-states
+     4. Change / in handleNormalKey to open query builder
+     5. Add raw query fallback on different key
+     6. Add buildQueryString helper
+     7. Test manually
+
+     Verification
+
+     1. go test ./... — all pass
+     2. :discovery → select index → / opens query builder popup
+     3. Press n → pick field from list → enter value → filter added
+     4. Add more filters, toggle AND/OR with a
+     5. Enter applies, shows filtered results
+     6. Esc cancels without changing query
+     7. Raw query input still accessible via alternative key
