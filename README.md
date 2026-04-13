@@ -62,6 +62,10 @@ make build
 
 Requires Go 1.26+.
 
+## Usage
+
+See [USAGE.md](USAGE.md) for a quick reference of views, keybindings, and the command palette.
+
 ## Configuration
 
 Create `~/.es-cli.auth` with your cluster credentials:
