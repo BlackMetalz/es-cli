@@ -11,7 +11,16 @@ import (
 	"github.com/kienlt/es-cli/internal/tui/clusterselect"
 )
 
+var version = "dev"
+
 func main() {
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.Println(version)
+			return
+		}
+	}
+
 	authPath := auth.DefaultAuthPath()
 
 	configs, err := auth.LoadAuth(authPath)
