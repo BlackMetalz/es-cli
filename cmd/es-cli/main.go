@@ -13,12 +13,28 @@ import (
 
 var version = "dev"
 
+func printUsage() {
+	fmt.Println("es-cli - K9s-style terminal UI for Elasticsearch")
+	fmt.Println()
+	fmt.Println("Usage: es-cli [flags]")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  --cluster <name>  Connect directly to a named cluster")
+	fmt.Println("  --read-only       Disable all create/edit/delete operations")
+	fmt.Println("  --version, -v     Print version and exit")
+	fmt.Println("  --help, -h        Show this help message")
+}
+
 func main() {
-	for _, arg := range os.Args[1:] {
-		if arg == "--version" || arg == "-v" {
-			fmt.Println(version)
-			return
-		}
+	flags := parseFlags()
+
+	if flags.help {
+		printUsage()
+		return
+	}
+	if flags.version {
+		fmt.Println(version)
+		return
 	}
 
 	authPath := auth.DefaultAuthPath()
@@ -29,8 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Parse --cluster flag
-	clusterName := parseClusterFlag()
+	clusterName := flags.cluster
 
 	var cluster auth.ClusterConfig
 
@@ -66,7 +81,7 @@ func main() {
 	}
 
 	client := es.NewClient(cluster.URL, cluster.Username, cluster.Password)
-	app := tui.NewApp(client, cluster.URL, cluster.Name)
+	app := tui.NewApp(client, cluster.URL, cluster.Name, flags.readOnly)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -75,13 +90,39 @@ func main() {
 	}
 }
 
-func parseClusterFlag() string {
-	for i, arg := range os.Args[1:] {
-		if arg == "--cluster" && i+1 < len(os.Args[1:]) {
-			return os.Args[i+2]
+type flags struct {
+	cluster  string
+	readOnly bool
+	version  bool
+	help     bool
+}
+
+func parseFlags() flags {
+	var f flags
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--version", "-v":
+			f.version = true
+		case "--help", "-h":
+			f.help = true
+		case "--read-only":
+			f.readOnly = true
+		case "--cluster":
+			if i+1 < len(args) {
+				i++
+				f.cluster = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --cluster requires a value\n")
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Error: unsupported flag %q\n", args[i])
+			fmt.Fprintf(os.Stderr, "Run 'es-cli --help' for usage.\n")
+			os.Exit(1)
 		}
 	}
-	return ""
+	return f
 }
 
 func findCluster(configs []auth.ClusterConfig, name string) *auth.ClusterConfig {

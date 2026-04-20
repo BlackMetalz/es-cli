@@ -22,7 +22,7 @@ func newTestClient() *es.Client {
 
 func TestNewApp(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	if app.header.ClusterURL != "http://localhost:9200" {
 		t.Fatal("expected cluster URL set")
@@ -37,7 +37,7 @@ func TestNewApp(t *testing.T) {
 
 func TestApp_WindowResize(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	msg := tea.WindowSizeMsg{Width: 120, Height: 40}
 	_, _ = app.Update(msg)
@@ -52,7 +52,7 @@ func TestApp_WindowResize(t *testing.T) {
 
 func TestApp_OpenCreateIndex(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	// Switch to index view first (default is dashboard)
 	app.handleCommand("index")
@@ -68,7 +68,7 @@ func TestApp_OpenCreateIndex(t *testing.T) {
 
 func TestApp_CancelCreateIndex(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.overlay = overlayCreateIndex
 	app.createIndexFm = createindex.New()
 
@@ -88,7 +88,7 @@ func TestApp_SubmitCreateIndex(t *testing.T) {
 		w.Write([]byte(`[]`))
 	}))
 	client := es.NewClient(server.URL, "elastic", "elastic")
-	app := NewApp(client, server.URL, "test")
+	app := NewApp(client, server.URL, "test", false)
 	app.overlay = overlayCreateIndex
 
 	_, cmd := app.Update(createindex.SubmitMsg{Name: "new-index", Shards: 1, Replicas: 1})
@@ -103,7 +103,7 @@ func TestApp_SubmitCreateIndex(t *testing.T) {
 
 func TestApp_ConfirmOverlay(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.width = 80
 	app.height = 24
 
@@ -133,7 +133,7 @@ func TestApp_ConfirmOverlay(t *testing.T) {
 
 func TestApp_ConfirmCancel(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.overlay = overlayConfirm
 	app.confirmAction = "delete"
 	app.confirmIndex = "test-index"
@@ -151,7 +151,7 @@ func TestApp_ConfirmAccept(t *testing.T) {
 		w.Write([]byte(`{"acknowledged":true}`))
 	}))
 	client := es.NewClient(server.URL, "elastic", "elastic")
-	app := NewApp(client, server.URL, "test")
+	app := NewApp(client, server.URL, "test", false)
 	app.overlay = overlayConfirm
 	app.confirmAction = "delete"
 	app.confirmIndex = "test-index"
@@ -169,7 +169,7 @@ func TestApp_ConfirmAccept(t *testing.T) {
 
 func TestApp_ConfirmViewCentered(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.width = 80
 	app.height = 24
 	app.header.Width = 80
@@ -185,7 +185,7 @@ func TestApp_ConfirmViewCentered(t *testing.T) {
 
 func TestApp_View(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.width = 80
 	app.height = 24
 	app.header.Width = 80
@@ -198,7 +198,7 @@ func TestApp_View(t *testing.T) {
 
 func TestApp_ViewStack(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	if len(app.viewStack) != 1 {
 		t.Fatalf("expected 1 view, got %d", len(app.viewStack))
@@ -210,7 +210,7 @@ func TestApp_ViewStack(t *testing.T) {
 
 func TestApp_PushPopView(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.width = 80
 	app.height = 24
 
@@ -243,7 +243,7 @@ func TestApp_PushPopView(t *testing.T) {
 
 func TestApp_PopViewMinimum(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	// Pop on single view should not crash
 	app.popView()
@@ -254,7 +254,7 @@ func TestApp_PopViewMinimum(t *testing.T) {
 
 func TestApp_HelpOverlay(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 	app.width = 80
 	app.height = 24
 
@@ -276,7 +276,7 @@ func TestApp_HelpOverlay(t *testing.T) {
 
 func TestApp_FlashMessage(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test")
+	app := NewApp(client, "http://localhost:9200", "test", false)
 
 	cmd := app.setFlash("test message", theme.StatusBarSuccessStyle)
 	if app.flashMsg != "test message" {
@@ -291,4 +291,110 @@ func TestApp_FlashMessage(t *testing.T) {
 	if app.flashMsg != "" {
 		t.Fatal("expected flash cleared")
 	}
+}
+
+func TestApp_ReadOnlyBlocksDelete(t *testing.T) {
+	client := newTestClient()
+	app := NewApp(client, "http://localhost:9200", "test", true)
+	app.width = 80
+	app.height = 24
+
+	// Switch to index view
+	app.handleCommand("index")
+	app.currentView().SetSize(80, app.viewHeight())
+	app.viewStack[0], _ = app.currentView().Update(indexview.IndicesLoadedMsg{
+		Indices: []es.Index{{Name: "test-index", Health: "green", Status: "open"}},
+	})
+
+	// Press d to trigger delete
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	if app.overlay == overlayConfirm {
+		t.Fatal("expected confirm overlay NOT to open in read-only mode")
+	}
+	if app.flashMsg != "Read-only mode: action blocked" {
+		t.Fatalf("expected read-only flash, got %q", app.flashMsg)
+	}
+}
+
+func TestApp_ReadOnlyBlocksCreate(t *testing.T) {
+	client := newTestClient()
+	app := NewApp(client, "http://localhost:9200", "test", true)
+
+	// Switch to index view
+	app.handleCommand("index")
+	app.viewStack[0], _ = app.currentView().Update(indexview.IndicesLoadedMsg{Indices: nil})
+
+	// Press n to create
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	if app.overlay == overlayCreateIndex {
+		t.Fatal("expected create overlay NOT to open in read-only mode")
+	}
+	if app.flashMsg != "Read-only mode: action blocked" {
+		t.Fatalf("expected read-only flash, got %q", app.flashMsg)
+	}
+}
+
+func TestApp_ReadOnlyAllowsViewDetail(t *testing.T) {
+	client := newTestClient()
+	app := NewApp(client, "http://localhost:9200", "test", true)
+	app.width = 80
+	app.height = 24
+
+	// Switch to index view
+	app.handleCommand("index")
+	app.currentView().SetSize(80, app.viewHeight())
+	app.viewStack[0], _ = app.currentView().Update(indexview.IndicesLoadedMsg{
+		Indices: []es.Index{{Name: "test-index", Health: "green", Status: "open"}},
+	})
+
+	// Press enter to view detail
+	_, _ = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(app.viewStack) != 2 {
+		t.Fatalf("expected view detail to work in read-only mode, got %d views", len(app.viewStack))
+	}
+}
+
+func TestApp_ReadOnlyStatusBar(t *testing.T) {
+	client := newTestClient()
+	app := NewApp(client, "http://localhost:9200", "test", true)
+	app.width = 80
+	app.height = 24
+	app.header.Width = 80
+
+	view := app.View()
+	if !containsText(view, "READ-ONLY") {
+		t.Fatal("expected [READ-ONLY] in status bar")
+	}
+}
+
+func containsText(s, substr string) bool {
+	// Strip ANSI escape codes for comparison
+	clean := ""
+	inEsc := false
+	for _, r := range s {
+		if r == '\033' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		clean += string(r)
+	}
+	return len(clean) > 0 && len(substr) > 0 && stringContains(clean, substr)
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

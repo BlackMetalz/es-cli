@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kienlt/es-cli/internal/es"
 	"github.com/kienlt/es-cli/internal/tui/commands"
@@ -72,6 +73,8 @@ type App struct {
 	errorPopupMsg     string
 	flashStyle        lipgloss.Style
 	allocationSetting string
+
+	readOnly bool
 }
 
 type clusterInfoMsg struct {
@@ -139,7 +142,32 @@ func (a *App) switchView(v views.View) {
 
 func (a *App) syncHeader() {
 	a.header.ViewName = a.currentView().Name()
-	a.header.HelpGroups = a.currentView().HelpGroups()
+	groups := a.currentView().HelpGroups()
+	if a.readOnly {
+		groups = filterReadOnlyGroups(groups)
+	}
+	a.header.HelpGroups = groups
+}
+
+// filterReadOnlyGroups removes destructive keybindings (create/edit/delete/open-close/maintenance)
+// from help groups so they don't appear in read-only mode.
+func filterReadOnlyGroups(groups []views.HelpGroup) []views.HelpGroup {
+	blocked := map[string]bool{"n": true, "d": true, "o": true, "e": true, "m": true}
+	var result []views.HelpGroup
+	for _, g := range groups {
+		var bindings []key.Binding
+		for _, b := range g.Bindings {
+			keys := b.Keys()
+			if len(keys) > 0 && blocked[keys[0]] {
+				continue
+			}
+			bindings = append(bindings, b)
+		}
+		if len(bindings) > 0 {
+			result = append(result, views.HelpGroup{Title: g.Title, Bindings: bindings})
+		}
+	}
+	return result
 }
 
 func newRouter() *commands.Router {
@@ -154,7 +182,7 @@ func newRouter() *commands.Router {
 	return r
 }
 
-func NewApp(client *es.Client, clusterURL, clusterName string) *App {
+func NewApp(client *es.Client, clusterURL, clusterName string, readOnly bool) *App {
 	h := header.New(clusterURL)
 	h.User = client.Username()
 	h.ClusterName = clusterName
@@ -168,6 +196,7 @@ func NewApp(client *es.Client, clusterURL, clusterName string) *App {
 		viewStack: []views.View{dashView},
 		client:    client,
 		router:    newRouter(),
+		readOnly:  readOnly,
 	}
 }
 
@@ -450,6 +479,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cmdPalette = cmdpalette.New(a.router, a.width)
 				return a, a.cmdPalette.Init()
 			case "n":
+				if a.readOnly {
+					return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
+				}
 				switch a.currentView().Name() {
 				case "Indices":
 					a.overlay = overlayCreateIndex
@@ -512,6 +544,14 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) {
+	if a.readOnly {
+		switch pa.Type {
+		case "close", "open", "delete", "delete_ilm", "delete_template",
+			"edit_ilm", "edit_template", "set_allocation":
+			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
+		}
+	}
+
 	switch pa.Type {
 	case "view_detail":
 		dv := detailview.New(a.client, pa.Index)
@@ -729,6 +769,9 @@ func (a *App) statusBarView() string {
 	}
 
 	right := ""
+	if a.readOnly {
+		right += theme.HealthYellowStyle.Render("[READ-ONLY]") + "  "
+	}
 	if a.allocationSetting != "" {
 		right += theme.HealthYellowStyle.Render("alloc: "+a.allocationSetting) + "  "
 	}
