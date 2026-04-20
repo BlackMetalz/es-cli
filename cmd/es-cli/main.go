@@ -23,6 +23,15 @@ func printUsage() {
 	fmt.Println("  --read-only       Disable all create/edit/delete operations")
 	fmt.Println("  --version, -v     Print version and exit")
 	fmt.Println("  --help, -h        Show this help message")
+	fmt.Println()
+	fmt.Println("Commands (press ':' in the TUI to open command palette):")
+	fmt.Println("  :dashboard        Cluster overview (aliases: dash)")
+	fmt.Println("  :index            List indices (aliases: indices)")
+	fmt.Println("  :node             List nodes (aliases: nodes)")
+	fmt.Println("  :shard            List shards (aliases: shards)")
+	fmt.Println("  :ilm              ILM policies (aliases: ilm-policy)")
+	fmt.Println("  :template         Index templates (aliases: templates, index-template)")
+	fmt.Println("  :discovery        Log viewer / search")
 }
 
 func main() {

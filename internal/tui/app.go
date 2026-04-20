@@ -792,7 +792,11 @@ func (a *App) statusBarView() string {
 
 func (a *App) View() string {
 	if a.overlay == overlayHelp {
-		return renderHelpFullScreen(a.currentView().HelpGroups(), a.width, a.height)
+		groups := a.currentView().HelpGroups()
+		if a.readOnly {
+			groups = filterReadOnlyGroups(groups)
+		}
+		return renderHelpFullScreen(groups, a.router.Commands(), a.width, a.height)
 	}
 
 	headerView := a.header.View()

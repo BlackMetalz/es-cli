@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/kienlt/es-cli/internal/tui/commands"
 	"github.com/kienlt/es-cli/internal/tui/theme"
 	"github.com/kienlt/es-cli/internal/tui/views"
 )
 
-func renderHelpFullScreen(groups []views.HelpGroup, width, height int) string {
+func renderHelpFullScreen(groups []views.HelpGroup, cmds []commands.Command, width, height int) string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(theme.ColorCyan).
 		Bold(true)
@@ -43,6 +44,24 @@ func renderHelpFullScreen(groups []views.HelpGroup, width, height int) string {
 			}
 		}
 
+		columns = append(columns, column{lines: lines, width: maxWidth + 4})
+	}
+
+	// Add commands column
+	if len(cmds) > 0 {
+		var lines []string
+		maxWidth := len("Commands")
+		lines = append(lines, groupTitleStyle.Render("Commands"))
+		for _, cmd := range cmds {
+			keyStr := theme.HelpKeyStyle.Render(fmt.Sprintf("<:%s>", cmd.Name))
+			descStr := theme.HelpDescStyle.Render("  " + cmd.Description)
+			line := keyStr + descStr
+			lines = append(lines, line)
+			w := lipgloss.Width(line)
+			if w > maxWidth {
+				maxWidth = w
+			}
+		}
 		columns = append(columns, column{lines: lines, width: maxWidth + 4})
 	}
 

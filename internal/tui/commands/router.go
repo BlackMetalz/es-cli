@@ -61,6 +61,11 @@ func (r *Router) Complete(prefix string) []Command {
 	return matches
 }
 
+// Commands returns all registered commands.
+func (r *Router) Commands() []Command {
+	return r.commands
+}
+
 // Names returns all registered command names.
 func (r *Router) Names() []string {
 	names := make([]string, len(r.commands))

@@ -12,6 +12,30 @@ A K9s-style terminal UI for managing Elasticsearch clusters. Built in Go using t
 - Multi-cluster support with selection UI
 - Cluster routing allocation control (maintenance mode)
 - Command palette (`:`) for view switching
+- Read-only mode (`--read-only`)
+
+## Screenshots
+
+### Dashboard
+![Dashboard](images/dashboard.png)
+
+### Index
+![Index](images/index.png)
+
+### Node
+![Node](images/node.png)
+
+### Shard
+![Shard](images/shard.png)
+
+### ILM Policies
+![ILM](images/ilm.png)
+
+### Index Templates
+![Template](images/template.png)
+
+### Discovery
+![Discovery](images/discovery.png)
 
 ## Install
 
