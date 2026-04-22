@@ -312,6 +312,9 @@ func (m *Model) View() string {
 			}
 		}
 	}
+	b.WriteString("  ")
+	b.WriteString(theme.HelpKeyStyle.Render("total: "))
+	b.WriteString(theme.HelpDescStyle.Render(m.totalStoreSize()))
 	b.WriteString("\n")
 
 	if m.searching {
@@ -397,6 +400,14 @@ func (m *Model) selectedIndex() string {
 		return ""
 	}
 	return row[2]
+}
+
+func (m *Model) totalStoreSize() string {
+	var total int64
+	for _, idx := range m.filtered {
+		total += es.ParseSizeToBytes(idx.StoreSize)
+	}
+	return es.FormatBytes(fmt.Sprintf("%d", total))
 }
 
 func (m *Model) selectedStatus() string {
