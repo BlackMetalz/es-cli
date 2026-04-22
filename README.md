@@ -41,35 +41,20 @@ A K9s-style terminal UI for managing Elasticsearch clusters. Built in Go using t
 
 ### Download prebuilt binary
 
-Grab the latest release from the [Releases page](https://github.com/kienlt/es-cli/releases).
+Grab the latest release from the [Releases page](https://github.com/blackmetalz/es-cli/releases).
 
 **Linux (amd64):**
 ```bash
-curl -L -o es-cli https://github.com/kienlt/es-cli/releases/latest/download/es-cli-linux-amd64
-chmod +x es-cli
-sudo mv es-cli /usr/local/bin/
-```
-
-**Linux (arm64):**
-```bash
-curl -L -o es-cli https://github.com/kienlt/es-cli/releases/latest/download/es-cli-linux-arm64
+curl -L -o es-cli https://github.com/blackmetalz/es-cli/releases/latest/download/es-cli-linux-amd64
 chmod +x es-cli
 sudo mv es-cli /usr/local/bin/
 ```
 
 **macOS (Apple Silicon / M1/M2/M3):**
 ```bash
-curl -L -o es-cli https://github.com/kienlt/es-cli/releases/latest/download/es-cli-darwin-arm64
+curl -L -o es-cli https://github.com/blackmetalz/es-cli/releases/latest/download/es-cli-darwin-arm64
 chmod +x es-cli
 xattr -d com.apple.quarantine es-cli  # remove Gatekeeper quarantine
-sudo mv es-cli /usr/local/bin/
-```
-
-**macOS (Intel):**
-```bash
-curl -L -o es-cli https://github.com/kienlt/es-cli/releases/latest/download/es-cli-darwin-amd64
-chmod +x es-cli
-xattr -d com.apple.quarantine es-cli
 sudo mv es-cli /usr/local/bin/
 ```
 
@@ -78,7 +63,7 @@ sudo mv es-cli /usr/local/bin/
 ### Build from source
 
 ```bash
-git clone https://github.com/kienlt/es-cli
+git clone https://github.com/blackmetalz/es-cli
 cd es-cli
 make build
 ./es-cli
