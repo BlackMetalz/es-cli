@@ -3,6 +3,8 @@ package es
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -28,6 +30,17 @@ type DashboardData struct {
 	DiskUsage     string
 	PrimaryShards int
 	ReplicaShards int
+
+	// Index pattern breakdown
+	PatternStats []IndexPatternStat
+}
+
+// IndexPatternStat holds aggregated stats for a group of similarly-named indices.
+type IndexPatternStat struct {
+	Pattern    string // e.g. "demo-*" or "app-logs"
+	IndexCount int
+	Shards     int
+	DiskBytes  int64
 }
 
 // DiskAvailPercent returns disk available as a percentage.
@@ -144,7 +157,101 @@ func (c *Client) GetDashboardData() (*DashboardData, error) {
 		}
 	}
 
+	// 5. Index pattern stats (includes hidden indices)
+	if ps, err := c.GetIndexPatternStats(); err == nil {
+		d.PatternStats = ps
+	}
+
 	return d, nil
+}
+
+// trailingNumRe matches a numeric suffix preceded by a separator (-, _, .)
+// e.g. "demo-1" → ["demo-1", "demo", "-", "1"]
+var trailingNumRe = regexp.MustCompile(`^(.*?)([-._])(\d[\d.]*)$`)
+
+// GetIndexPatternStats fetches all indices (including hidden) and groups them by
+// detected pattern. Indices like demo-1, demo-2 are collapsed to demo-*.
+func (c *Client) GetIndexPatternStats() ([]IndexPatternStat, error) {
+	data, err := c.Get("/_cat/indices?format=json&h=index,pri,rep,store.size&bytes=b&expand_wildcards=all")
+	if err != nil {
+		return nil, err
+	}
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+
+	type entry struct {
+		name   string
+		shards int
+		bytes  int64
+	}
+
+	type group struct {
+		pattern string
+		items   []entry
+	}
+
+	groupMap := map[string]*group{}
+	var keyOrder []string
+
+	for _, row := range rows {
+		name := JsonStr(row["index"])
+		pri := jsonInt(row["pri"])
+		rep := jsonInt(row["rep"])
+		shards := pri * (1 + rep)
+
+		var diskBytes int64
+		if b, err2 := strconv.ParseInt(JsonStr(row["store.size"]), 10, 64); err2 == nil {
+			diskBytes = b
+		}
+
+		e := entry{name: name, shards: shards, bytes: diskBytes}
+
+		// Derive grouping key: "demo-" for "demo-1", "demo-2"; full name for singles
+		var key string
+		if m := trailingNumRe.FindStringSubmatch(name); m != nil {
+			key = m[1] + m[2] // base + separator, e.g. "demo-"
+		} else {
+			key = name
+		}
+
+		if _, exists := groupMap[key]; !exists {
+			groupMap[key] = &group{}
+			keyOrder = append(keyOrder, key)
+		}
+		groupMap[key].items = append(groupMap[key].items, e)
+	}
+
+	stats := make([]IndexPatternStat, 0, len(groupMap))
+	for _, key := range keyOrder {
+		g := groupMap[key]
+		var totalShards int
+		var totalBytes int64
+		for _, e := range g.items {
+			totalShards += e.shards
+			totalBytes += e.bytes
+		}
+		pattern := key
+		if len(g.items) > 1 {
+			pattern = key + "*"
+		} else {
+			pattern = g.items[0].name
+		}
+		stats = append(stats, IndexPatternStat{
+			Pattern:    pattern,
+			IndexCount: len(g.items),
+			Shards:     totalShards,
+			DiskBytes:  totalBytes,
+		})
+	}
+
+	// Sort by disk usage descending so the heaviest patterns appear first
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].DiskBytes > stats[j].DiskBytes
+	})
+
+	return stats, nil
 }
 
 func jsonInt(v interface{}) int {

@@ -97,6 +97,75 @@ func TestGetDashboardData_Error(t *testing.T) {
 	}
 }
 
+func TestGetIndexPatternStats(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[
+			{"index":"demo-1","pri":"1","rep":"0","store.size":"10000000"},
+			{"index":"demo-2","pri":"1","rep":"0","store.size":"10000000"},
+			{"index":"demo-3","pri":"1","rep":"0","store.size":"10000000"},
+			{"index":"app-logs","pri":"2","rep":"1","store.size":"7000000"},
+			{"index":".kibana_1","pri":"1","rep":"0","store.size":"500000"},
+			{"index":".kibana_2","pri":"1","rep":"0","store.size":"600000"}
+		]`))
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, "elastic", "elastic")
+	stats, err := c.GetIndexPatternStats()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expect 3 patterns: demo-*, app-logs, .kibana_*
+	if len(stats) != 3 {
+		t.Fatalf("expected 3 patterns, got %d: %+v", len(stats), stats)
+	}
+
+	// demo-* should have the most disk (3 x 10mb = 30mb) → first
+	if stats[0].Pattern != "demo-*" {
+		t.Fatalf("expected demo-* first, got %s", stats[0].Pattern)
+	}
+	if stats[0].IndexCount != 3 {
+		t.Fatalf("expected 3 indices in demo-*, got %d", stats[0].IndexCount)
+	}
+	if stats[0].Shards != 3 {
+		t.Fatalf("expected 3 shards for demo-*, got %d", stats[0].Shards)
+	}
+	if stats[0].DiskBytes != 30000000 {
+		t.Fatalf("expected 30000000 bytes, got %d", stats[0].DiskBytes)
+	}
+
+	// app-logs single index — pri=2, rep=1 → shards = 2*(1+1) = 4
+	var appLogs *IndexPatternStat
+	for i := range stats {
+		if stats[i].Pattern == "app-logs" {
+			appLogs = &stats[i]
+			break
+		}
+	}
+	if appLogs == nil {
+		t.Fatal("expected app-logs pattern")
+	}
+	if appLogs.Shards != 4 {
+		t.Fatalf("expected 4 shards (2 pri * 2), got %d", appLogs.Shards)
+	}
+
+	// .kibana_* group
+	var kibana *IndexPatternStat
+	for i := range stats {
+		if stats[i].Pattern == ".kibana_*" {
+			kibana = &stats[i]
+			break
+		}
+	}
+	if kibana == nil {
+		t.Fatal("expected .kibana_* pattern")
+	}
+	if kibana.IndexCount != 2 {
+		t.Fatalf("expected 2 indices in .kibana_*, got %d", kibana.IndexCount)
+	}
+}
+
 func TestGetDashboardData_ZeroIndices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

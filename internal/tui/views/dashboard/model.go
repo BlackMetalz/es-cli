@@ -22,13 +22,14 @@ type ErrorMsg struct {
 }
 
 type Model struct {
-	client  *es.Client
-	keys    KeyMap
-	data    *es.DashboardData
-	width   int
-	height  int
-	loading bool
-	err     error
+	client     *es.Client
+	keys       KeyMap
+	data       *es.DashboardData
+	width      int
+	height     int
+	loading    bool
+	err        error
+	showHidden bool // include dot-indices in Index Analyze section
 }
 
 var _ views.View = (*Model)(nil)
@@ -79,6 +80,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		m.loading = true
 		return m, m.fetchDashboard()
+	case key.Matches(msg, m.keys.ToggleHidden):
+		m.showHidden = !m.showHidden
+		return m, nil
 	case key.Matches(msg, m.keys.Help):
 		return m, nil
 	case key.Matches(msg, m.keys.Quit):
@@ -191,7 +195,11 @@ func (m *Model) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Left, styledOverview, styledNodes, styledIndices)
 	}
 
-	result := "\n" + content
+	// Index Analyze section: one wide box, content wraps into columns before hitting bottom
+	topH := lipgloss.Height(content) // height of the 3-box row (no leading \n yet)
+	analyzeBox := m.renderAnalyzeBox(topH)
+
+	result := "\n" + content + "\n" + analyzeBox
 
 	// Pad to fill available height so status bar sticks to bottom
 	contentHeight := lipgloss.Height(result)
@@ -200,6 +208,132 @@ func (m *Model) View() string {
 	}
 
 	return result
+}
+
+// renderAnalyzeBox renders the Index Analyze section as a single wide box.
+// When the pattern list would overflow the available height, it flows into
+// additional columns inside the same box (newspaper-column style).
+func (m *Model) renderAnalyzeBox(topH int) string {
+	patterns := m.visiblePatterns()
+
+	// How many pattern rows fit in one column before hitting the bottom.
+	// Layout chain: 1 (\n before content) + topH + 1 (\n between rows) + analyzeBox = m.height
+	// analyzeBox chrome: 1 top-border + 1 top-pad + 1 bot-pad + 1 bot-border = 4 lines
+	// Fixed content inside box: title(1) + blank(1) + table-header(1) + separator(1) = 4 lines
+	patternRowsPerCol := m.height - 1 - topH - 1 - 4 - 4
+	if patternRowsPerCol < 1 {
+		patternRowsPerCol = 1
+	}
+
+	numCols := 1
+	if len(patterns) > patternRowsPerCol {
+		numCols = 2
+	}
+	if len(patterns) > 2*patternRowsPerCol {
+		numCols = 3
+	}
+
+	// Inner content width of the full-width box.
+	// sectionStyle border = 1 each side (2), padding = 2 each side (4) → 6 total overhead.
+	boxW := m.width - 4
+	contentW := boxW - 6
+	colW := contentW / numCols
+
+	// Title + toggle hint
+	hiddenLabel := subtitleStyle.Render("h: show hidden")
+	if m.showHidden {
+		hiddenLabel = theme.HealthYellowStyle.Render("h: hide hidden")
+	}
+	title := sectionTitleStyle.Render("Index Analyze") + "  " + hiddenLabel
+
+	var body string
+	if numCols == 1 {
+		body = renderPatternTable(patterns, contentW)
+	} else {
+		// Distribute patterns into columns, filling top-to-bottom then next column.
+		styledCols := make([]string, numCols)
+		maxTableH := 0
+		for c := 0; c < numCols; c++ {
+			start := c * patternRowsPerCol
+			if start >= len(patterns) {
+				styledCols[c] = lipgloss.NewStyle().Width(colW).Render("")
+				continue
+			}
+			end := start + patternRowsPerCol
+			if end > len(patterns) {
+				end = len(patterns)
+			}
+			tbl := renderPatternTable(patterns[start:end], colW)
+			if h := lipgloss.Height(tbl); h > maxTableH {
+				maxTableH = h
+			}
+			styledCols[c] = tbl
+		}
+		// Pad shorter columns so JoinHorizontal aligns cleanly
+		for i, col := range styledCols {
+			pad := strings.Repeat("\n", maxTableH-lipgloss.Height(col))
+			styledCols[i] = lipgloss.NewStyle().Width(colW).Render(col + pad)
+		}
+		body = lipgloss.JoinHorizontal(lipgloss.Top, styledCols...)
+	}
+
+	content := title + "\n\n" + body
+	return sectionStyle.Width(boxW).Render(content)
+}
+
+// visiblePatterns returns PatternStats filtered by the showHidden toggle.
+func (m *Model) visiblePatterns() []es.IndexPatternStat {
+	all := m.data.PatternStats
+	if m.showHidden {
+		return all
+	}
+	out := make([]es.IndexPatternStat, 0, len(all))
+	for _, ps := range all {
+		if !strings.HasPrefix(ps.Pattern, ".") {
+			out = append(out, ps)
+		}
+	}
+	return out
+}
+
+// renderPatternTable renders a list of patterns as a table with innerWidth content width.
+func renderPatternTable(patterns []es.IndexPatternStat, innerWidth int) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+	const (
+		colIdx    = 5
+		colShards = 8
+		colDisk   = 10
+	)
+	colPattern := innerWidth - colIdx - colShards - colDisk
+	if colPattern < 10 {
+		colPattern = 10
+	}
+
+	var b strings.Builder
+	b.WriteString(
+		labelStyle.Width(colPattern).Render("Pattern") +
+			labelStyle.Width(colIdx).Render("Idx") +
+			labelStyle.Width(colShards).Render("Shards") +
+			labelStyle.Width(colDisk).Render("Disk") + "\n",
+	)
+	b.WriteString(subtitleStyle.Render(strings.Repeat("─", colPattern+colIdx+colShards+colDisk)) + "\n")
+
+	for _, ps := range patterns {
+		pattern := ps.Pattern
+		if len(pattern) > colPattern-1 {
+			pattern = pattern[:colPattern-4] + "..."
+		}
+		disk := es.FormatBytes(fmt.Sprintf("%d", ps.DiskBytes))
+		b.WriteString(
+			valueStyle.Width(colPattern).Render(pattern) +
+				subtitleStyle.Width(colIdx).Render(fmt.Sprintf("%d", ps.IndexCount)) +
+				subtitleStyle.Width(colShards).Render(fmt.Sprintf("%d", ps.Shards)) +
+				valueStyle.Width(colDisk).Render(disk) + "\n",
+		)
+	}
+	return b.String()
 }
 
 type row struct {
@@ -271,6 +405,7 @@ func (m *Model) HelpGroups() []views.HelpGroup {
 			Title: "Dashboard",
 			Bindings: []key.Binding{
 				m.keys.Refresh,
+				m.keys.ToggleHidden,
 				m.keys.Help,
 				m.keys.Quit,
 			},
