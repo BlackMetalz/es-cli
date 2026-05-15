@@ -62,7 +62,7 @@ func TestSearchDocs(t *testing.T) {
 	defer server.Close()
 
 	c := NewClient(server.URL, "elastic", "elastic")
-	result, err := c.SearchDocs("logs-*", "level:ERROR", []string{"@timestamp", "level"}, 100, nil)
+	result, err := c.SearchDocs("logs-*", "level:ERROR", "@timestamp", []string{"@timestamp", "level"}, 100, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestSearchDocs_MatchAll(t *testing.T) {
 	defer server.Close()
 
 	c := NewClient(server.URL, "elastic", "elastic")
-	result, err := c.SearchDocs("logs-*", "", nil, 50, nil)
+	result, err := c.SearchDocs("logs-*", "", "", nil, 50, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestSearchDocs_WithSearchAfter(t *testing.T) {
 	defer server.Close()
 
 	c := NewClient(server.URL, "elastic", "elastic")
-	result, err := c.SearchDocs("logs-*", "", nil, 50, []interface{}{float64(200), float64(2)})
+	result, err := c.SearchDocs("logs-*", "", "", nil, 50, []interface{}{float64(200), float64(2)})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

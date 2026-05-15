@@ -82,7 +82,12 @@ func flattenProperties(prefix string, props map[string]interface{}, result map[s
 }
 
 // SearchDocs executes a search query against an index.
-func (c *Client) SearchDocs(index, query string, fields []string, size int, searchAfter []interface{}) (*SearchResult, error) {
+// timestampField is the date field used for sorting (falls back to "@timestamp" if empty).
+func (c *Client) SearchDocs(index, query, timestampField string, fields []string, size int, searchAfter []interface{}) (*SearchResult, error) {
+	if timestampField == "" {
+		timestampField = "@timestamp"
+	}
+
 	// Build query
 	var queryPart string
 	if query == "" {
@@ -99,8 +104,9 @@ func (c *Client) SearchDocs(index, query string, fields []string, size int, sear
 		sourcePart = fmt.Sprintf(`, "_source": %s`, string(fieldJSON))
 	}
 
-	// Build sort
-	sortPart := `"sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}, "_doc"]`
+	// Build sort using the index's actual timestamp field
+	tsFieldJSON, _ := json.Marshal(timestampField)
+	sortPart := fmt.Sprintf(`"sort": [{%s: {"order": "desc", "unmapped_type": "date"}}, "_doc"]`, string(tsFieldJSON))
 
 	// Build search_after
 	searchAfterPart := ""

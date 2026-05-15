@@ -55,12 +55,13 @@ type Model struct {
 	indexInput     textinput.Model
 
 	// Query state
-	index      string
-	query      string
-	editing    bool
-	queryInput textinput.Model
-	columns    []string
-	allFields  []es.FieldMapping
+	index          string
+	query          string
+	editing        bool
+	queryInput     textinput.Model
+	columns        []string
+	allFields      []es.FieldMapping
+	timestampField string // detected date field used for time range filter and sort
 
 	// Results + pagination
 	table     table.Model
@@ -162,6 +163,16 @@ func New(client *es.Client) *Model {
 	toIn.Prompt = "  To> "
 	toIn.CharLimit = 30
 
+	// Default to "All time" so exploration works on any index regardless of data age.
+	// Users can narrow the range via <t> once they know their data's time distribution.
+	allTimeIdx := 0
+	for i, tr := range timeRanges {
+		if tr.Duration == 0 {
+			allTimeIdx = i
+			break
+		}
+	}
+
 	return &Model{
 		client:          client,
 		keys:            keys,
@@ -176,6 +187,7 @@ func New(client *es.Client) *Model {
 		timeFromInput:   fromIn,
 		timeToInput:     toIn,
 		columnSelected:  make(map[string]bool),
+		timeRangeIdx:    allTimeIdx,
 	}
 }
 
@@ -207,6 +219,10 @@ func (m *Model) fetchMapping() tea.Cmd {
 func (m *Model) buildFullQuery() string {
 	q := m.query
 	tr := timeRanges[m.timeRangeIdx]
+	tsField := m.timestampField
+	if tsField == "" {
+		tsField = "@timestamp"
+	}
 	var timeFilter string
 	if tr.Duration == -2 && !m.timeFrom.IsZero() {
 		// Absolute custom range
@@ -215,10 +231,10 @@ func (m *Model) buildFullQuery() string {
 		if m.timeTo.IsZero() {
 			to = "*"
 		}
-		timeFilter = "@timestamp:[" + from + " TO " + to + "]"
+		timeFilter = tsField + ":[" + from + " TO " + to + "]"
 	} else if tr.Duration > 0 {
 		since := time.Now().Add(-tr.Duration).UTC().Format(time.RFC3339)
-		timeFilter = "@timestamp:[" + since + " TO *]"
+		timeFilter = tsField + ":[" + since + " TO *]"
 	}
 	if timeFilter != "" {
 		if q == "" {
@@ -231,7 +247,7 @@ func (m *Model) buildFullQuery() string {
 }
 
 func (m *Model) executeSearch() tea.Cmd {
-	idx, cols := m.index, m.columns
+	idx, cols, tsField := m.index, m.columns, m.timestampField
 	q := m.buildFullQuery()
 	page := m.page
 	var sa []interface{}
@@ -239,7 +255,7 @@ func (m *Model) executeSearch() tea.Cmd {
 		sa = m.pageSorts[page-1]
 	}
 	return func() tea.Msg {
-		result, err := m.client.SearchDocs(idx, q, cols, pageSize, sa)
+		result, err := m.client.SearchDocs(idx, q, tsField, cols, pageSize, sa)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
@@ -258,7 +274,8 @@ func (m *Model) Update(msg tea.Msg) (views.View, tea.Cmd) {
 
 	case MappingLoadedMsg:
 		m.allFields = msg.Fields
-		m.columns = defaultColumns(msg.Fields)
+		m.timestampField = detectTimestampField(msg.Fields)
+		m.columns = defaultColumns(msg.Fields, m.timestampField)
 		m.columnSelected = make(map[string]bool)
 		for _, c := range m.columns {
 			m.columnSelected[c] = true

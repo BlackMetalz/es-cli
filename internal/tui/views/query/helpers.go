@@ -54,7 +54,7 @@ func (m *Model) updateTableRows() {
 		row := make(table.Row, 0, len(m.columns)+1)
 		row = append(row, fmt.Sprintf("%d", i+1))
 		for _, col := range m.columns {
-			row = append(row, getField(hit.Source, col))
+			row = append(row, getField(hit.Source, col, m.timestampField))
 		}
 		rows[i] = row
 	}
@@ -64,7 +64,9 @@ func (m *Model) updateTableRows() {
 	}
 }
 
-func getField(source map[string]interface{}, field string) string {
+// getField extracts a (possibly nested) field from a hit source.
+// tsField is the index's timestamp field; values in that field are formatted as local time.
+func getField(source map[string]interface{}, field, tsField string) string {
 	parts := strings.Split(field, ".")
 	var current interface{} = source
 	for _, p := range parts {
@@ -79,8 +81,8 @@ func getField(source map[string]interface{}, field string) string {
 	}
 	val := fmt.Sprintf("%v", current)
 
-	// Convert @timestamp to local time
-	if field == "@timestamp" {
+	// Format date fields as local time
+	if field == "@timestamp" || (tsField != "" && field == tsField) {
 		if t, err := time.Parse(time.RFC3339Nano, val); err == nil {
 			return t.Local().Format("2006-01-02 15:04:05")
 		}
@@ -92,18 +94,30 @@ func getField(source map[string]interface{}, field string) string {
 	return val
 }
 
-func defaultColumns(fields []es.FieldMapping) []string {
-	cols := []string{}
-	// Always include @timestamp if present
+// detectTimestampField returns the index's primary date field.
+// Prefers "@timestamp", then falls back to the first field with type "date".
+func detectTimestampField(fields []es.FieldMapping) string {
+	first := ""
 	for _, f := range fields {
 		if f.Name == "@timestamp" {
-			cols = append(cols, "@timestamp")
-			break
+			return "@timestamp"
+		}
+		if f.Type == "date" && first == "" {
+			first = f.Name
 		}
 	}
-	// Add first few keyword/text fields
+	return first
+}
+
+// defaultColumns picks the initial column set for a newly selected index.
+// tsField is the detected timestamp field (placed first if non-empty).
+func defaultColumns(fields []es.FieldMapping, tsField string) []string {
+	cols := []string{}
+	if tsField != "" {
+		cols = append(cols, tsField)
+	}
 	for _, f := range fields {
-		if f.Name == "@timestamp" {
+		if f.Name == tsField {
 			continue
 		}
 		if f.Type == "keyword" || f.Type == "text" {
@@ -205,14 +219,14 @@ func parseAbsoluteTime(s string) time.Time {
 }
 
 // formatDocDetail formats a document source as a key-value table string.
-func formatDocDetail(source map[string]interface{}, fields []es.FieldMapping) string {
+func formatDocDetail(source map[string]interface{}, fields []es.FieldMapping, tsField string) string {
 	var b strings.Builder
 
 	// Find max key width for alignment
 	maxKey := 0
 	var rows []struct{ k, v string }
 	for _, f := range fields {
-		val := getField(source, f.Name)
+		val := getField(source, f.Name, tsField)
 		if val == "" {
 			continue
 		}
@@ -223,7 +237,7 @@ func formatDocDetail(source map[string]interface{}, fields []es.FieldMapping) st
 	}
 
 	// Also add any fields not in mapping
-	for k, v := range source {
+	for k := range source {
 		found := false
 		for _, r := range rows {
 			if r.k == k {
@@ -232,7 +246,7 @@ func formatDocDetail(source map[string]interface{}, fields []es.FieldMapping) st
 			}
 		}
 		if !found {
-			val := fmt.Sprintf("%v", v)
+			val := getField(source, k, tsField)
 			if len(k) > maxKey {
 				maxKey = len(k)
 			}

@@ -278,16 +278,16 @@ func TestGetField(t *testing.T) {
 		},
 	}
 
-	if v := getField(source, "message"); v != "hello" {
+	if v := getField(source, "message", ""); v != "hello" {
 		t.Fatalf("expected 'hello', got '%s'", v)
 	}
-	if v := getField(source, "host.name"); v != "server1" {
+	if v := getField(source, "host.name", ""); v != "server1" {
 		t.Fatalf("expected 'server1', got '%s'", v)
 	}
-	if v := getField(source, "missing"); v != "" {
+	if v := getField(source, "missing", ""); v != "" {
 		t.Fatalf("expected empty, got '%s'", v)
 	}
-	if v := getField(source, "host.missing"); v != "" {
+	if v := getField(source, "host.missing", ""); v != "" {
 		t.Fatalf("expected empty, got '%s'", v)
 	}
 }
@@ -299,7 +299,7 @@ func TestDefaultColumns(t *testing.T) {
 		{Name: "level", Type: "keyword"},
 		{Name: "count", Type: "long"},
 	}
-	cols := defaultColumns(fields)
+	cols := defaultColumns(fields, "@timestamp")
 	if len(cols) == 0 {
 		t.Fatal("expected at least one column")
 	}
@@ -322,5 +322,67 @@ func TestDefaultColumns(t *testing.T) {
 	}
 	if !hasLevel {
 		t.Fatal("expected level in default columns")
+	}
+}
+
+func TestBuildQueryString(t *testing.T) {
+	cases := []struct {
+		name    string
+		filters []FilterCondition
+		want    string
+	}{
+		{
+			name:    "single simple value",
+			filters: []FilterCondition{{Field: "level", Value: "ERROR", Operator: "AND"}},
+			want:    "level:ERROR",
+		},
+		{
+			name:    "hyphen in value is quoted",
+			filters: []FilterCondition{{Field: "facility", Value: "plant-d", Operator: "AND"}},
+			want:    `facility:"plant-d"`,
+		},
+		{
+			name:    "space in value is quoted",
+			filters: []FilterCondition{{Field: "notes", Value: "leave at door", Operator: "AND"}},
+			want:    `notes:"leave at door"`,
+		},
+		{
+			name:    "already quoted value left as-is",
+			filters: []FilterCondition{{Field: "msg", Value: `"hello world"`, Operator: "AND"}},
+			want:    `msg:"hello world"`,
+		},
+		{
+			name: "AND of two simple values",
+			filters: []FilterCondition{
+				{Field: "level", Value: "ERROR", Operator: "AND"},
+				{Field: "service", Value: "api", Operator: "AND"},
+			},
+			want: "level:ERROR AND service:api",
+		},
+		{
+			name: "hyphenated value in multi-filter",
+			filters: []FilterCondition{
+				{Field: "device_type", Value: "power_meter", Operator: "AND"},
+				{Field: "facility", Value: "plant-d", Operator: "AND"},
+			},
+			want: `device_type:power_meter AND facility:"plant-d"`,
+		},
+		{
+			name: "OR group",
+			filters: []FilterCondition{
+				{Field: "facility", Value: "plant-a", Operator: "OR"},
+				{Field: "facility", Value: "plant-d", Operator: "AND"},
+			},
+			want: `(facility:"plant-a" OR facility:"plant-d")`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildQueryString(tc.filters)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

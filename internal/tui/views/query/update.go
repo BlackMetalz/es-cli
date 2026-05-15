@@ -138,7 +138,7 @@ func (m *Model) handleColumnPickerKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 			}
 		}
 		if len(m.columns) == 0 {
-			m.columns = defaultColumns(m.allFields)
+			m.columns = defaultColumns(m.allFields, m.timestampField)
 		}
 		m.rebuildTable()
 		m.updateTableRows()
@@ -210,7 +210,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		if cursor >= 0 && cursor < len(m.hits) {
 			m.viewingDoc = true
 			m.docScroll = 0
-			m.docContent = formatDocDetail(m.hits[cursor].Source, m.allFields)
+			m.docContent = formatDocDetail(m.hits[cursor].Source, m.allFields, m.timestampField)
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.Columns):
@@ -232,6 +232,9 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		m.total = 0
 		m.followInterval = 0
 		m.followIdx = 0
+		m.query = ""
+		m.qbFilters = nil
+		m.timestampField = ""
 		m.loading = true
 		return m, m.fetchIndices()
 	case key.Matches(msg, m.keys.Help):
@@ -386,7 +389,7 @@ func (m *Model) handleDocViewKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		cursor := m.table.Cursor()
 		if cursor < len(m.hits)-1 {
 			m.table.SetCursor(cursor + 1)
-			m.docContent = formatDocDetail(m.hits[cursor+1].Source, m.allFields)
+			m.docContent = formatDocDetail(m.hits[cursor+1].Source, m.allFields, m.timestampField)
 		}
 		return m, nil
 	case "[", "k", "up":
@@ -394,7 +397,7 @@ func (m *Model) handleDocViewKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		cursor := m.table.Cursor()
 		if cursor > 0 {
 			m.table.SetCursor(cursor - 1)
-			m.docContent = formatDocDetail(m.hits[cursor-1].Source, m.allFields)
+			m.docContent = formatDocDetail(m.hits[cursor-1].Source, m.allFields, m.timestampField)
 		}
 		return m, nil
 	}

@@ -258,12 +258,33 @@ func (m *Model) viewQueryBuilder() string {
 	return theme.ModalStyle.Render(b.String())
 }
 
+// luceneQuoteValue wraps a value in quotes if it contains Lucene special characters
+// that would otherwise be interpreted as operators (e.g. "-" as NOT, "+" as required,
+// spaces as term separators, etc.). Values that are already quoted are left as-is.
+func luceneQuoteValue(val string) string {
+	if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+		return val // already quoted by user
+	}
+	const special = `+-&|!(){}[]^~*?:\/  `
+	for _, c := range special {
+		if strings.ContainsRune(val, c) {
+			escaped := strings.ReplaceAll(val, `"`, `\"`)
+			return `"` + escaped + `"`
+		}
+	}
+	return val
+}
+
+func filterTerm(f FilterCondition) string {
+	return f.Field + ":" + luceneQuoteValue(f.Value)
+}
+
 func buildQueryString(filters []FilterCondition) string {
 	if len(filters) == 0 {
 		return ""
 	}
 	if len(filters) == 1 {
-		return filters[0].Field + ":" + filters[0].Value
+		return filterTerm(filters[0])
 	}
 
 	// Group consecutive filters by operator to build proper parenthesized query.
@@ -273,10 +294,10 @@ func buildQueryString(filters []FilterCondition) string {
 	i := 0
 	for i < len(filters) {
 		// Collect a group of OR'd filters starting from i
-		group := []string{filters[i].Field + ":" + filters[i].Value}
+		group := []string{filterTerm(filters[i])}
 		for i < len(filters)-1 && filters[i].Operator == "OR" {
 			i++
-			group = append(group, filters[i].Field+":"+filters[i].Value)
+			group = append(group, filterTerm(filters[i]))
 		}
 
 		if len(group) > 1 {
