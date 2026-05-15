@@ -1,4 +1,4 @@
-.PHONY: dev-init dev-start dev-stop dev-destroy dev-auth build test run seed-data generate-indices
+.PHONY: dev-init dev-start dev-stop dev-destroy dev-auth build test run seed-data seed-data-alt generate-indices
 
 dev-init:
 	docker compose up -d
@@ -34,11 +34,16 @@ run: build
 	./es-cli
 
 seed-data:
-	go run ./cmd/seed
+	./scripts/seed-data.sh
 
 NUM ?= 100
 generate-indices:
 	./scripts/generate-indices.sh $(NUM)
+
+PARALLEL ?= 4
+BATCH_SIZE ?= 10000
+seed-data-alt:
+	PARALLEL=$(PARALLEL) BATCH_SIZE=$(BATCH_SIZE) ./scripts/seed-data-alt.sh
 
 INDEX ?= app-logs
 INTERVAL ?= 1000

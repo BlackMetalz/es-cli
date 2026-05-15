@@ -1,73 +1,127 @@
 #!/bin/bash
 # Seed demo data into Elasticsearch
 # Creates demo-1, demo-2, demo-3 indices with ~50MB each
+#
+# Usage:
+#   ./seed-data.sh
+#   ES_URL=http://remote:9200 PARALLEL=8 BATCH_SIZE=20000 ./seed-data.sh
 
 ES_URL="${ES_URL:-http://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"
 ES_PASS="${ES_PASS:-elastic}"
 CURL="curl -s -u ${ES_USER}:${ES_PASS}"
 
-INDICES=("demo-1" "demo-2" "demo-3")
-TARGET_SIZE_MB=50
-# Each doc is ~1KB, so ~51200 docs per index for ~50MB
+BATCH_SIZE="${BATCH_SIZE:-10000}"
+PARALLEL="${PARALLEL:-4}"
 DOCS_PER_INDEX=51200
-BATCH_SIZE=5000
 
-echo "Seeding data to ${ES_URL}..."
+INDICES=("demo-1" "demo-2" "demo-3")
+
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# ── Python generator ──────────────────────────────────────────────────────────
+
+gen_docs() {
+    python3 - "$1" <<'PY'
+import sys, random, datetime, json
+
+count   = int(sys.argv[1])
+HOSTS   = [f"server-{i}" for i in range(10)]
+STATUSES= ['active', 'idle', 'degraded', 'maintenance']
+METRICS = ['cpu_usage', 'mem_usage', 'disk_io', 'net_throughput', 'request_rate']
+
+# Reusable padding pool — avoid per-doc random generation
+ALPHA   = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
+POOL    = ''.join(random.choices(ALPHA, k=16384))
+
+now     = int(datetime.datetime.utcnow().timestamp())
+RANGE_S = 30 * 86400
+
+out = []
+for i in range(count):
+    ts  = datetime.datetime.utcfromtimestamp(now - random.randint(0, RANGE_S))
+    off = (i * 700) % (len(POOL) - 720)
+    pad = POOL[off: off + 700 + (i % 20)]
+    doc = {
+        "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "value":     random.randint(0, 1000000),
+        "metric":    round(random.uniform(0.0, 100.0), 2),
+        "metric_name": random.choice(METRICS),
+        "status":    random.choice(STATUSES),
+        "host":      random.choice(HOSTS),
+        "message":   pad,
+    }
+    out.append('{"index":{}}')
+    out.append(json.dumps(doc, separators=(',', ':')))
+
+sys.stdout.write('\n'.join(out) + '\n')
+PY
+}
+
+# ── Seed function ─────────────────────────────────────────────────────────────
+
+seed_index() {
+    local index=$1
+    local tmpdir="$WORKDIR/$index"
+    mkdir -p "$tmpdir"
+
+    local uploaded=0 active_jobs=0 bid=0
+
+    while [ $uploaded -lt $DOCS_PER_INDEX ]; do
+        local remaining=$((DOCS_PER_INDEX - uploaded))
+        local batch=$BATCH_SIZE
+        [ $remaining -lt $batch ] && batch=$remaining
+
+        local f="$tmpdir/${bid}.ndjson"
+        gen_docs "$batch" > "$f"
+
+        (
+            $CURL -XPOST "${ES_URL}/${index}/_bulk" \
+                -H 'Content-Type: application/x-ndjson' \
+                --data-binary "@$f" > /dev/null
+            rm -f "$f"
+        ) &
+
+        uploaded=$((uploaded + batch))
+        bid=$((bid + 1))
+        active_jobs=$((active_jobs + 1))
+        printf "\r  [${index}] Progress: %d/%d docs (%d%%)" $uploaded $DOCS_PER_INDEX $((uploaded * 100 / DOCS_PER_INDEX))
+
+        if [ $active_jobs -ge $PARALLEL ]; then
+            wait
+            active_jobs=0
+        fi
+    done
+
+    wait
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+echo "Seeding data to ${ES_URL}  (batch=${BATCH_SIZE}, parallel=${PARALLEL})..."
 
 for INDEX in "${INDICES[@]}"; do
     echo ""
     echo "=== Creating index: ${INDEX} ==="
 
-    # Delete if exists
-    $CURL -XDELETE "${ES_URL}/${INDEX}" 2>/dev/null
-    echo ""
+    $CURL -XDELETE "${ES_URL}/${INDEX}" > /dev/null 2>&1 || true
 
-    # Create index
     $CURL -XPUT "${ES_URL}/${INDEX}" -H 'Content-Type: application/json' -d '{
         "settings": {
             "number_of_shards": 1,
             "number_of_replicas": 0,
             "refresh_interval": "30s"
         }
-    }'
-    echo ""
+    }' > /dev/null
+    echo "  index created"
 
-    TOTAL=0
-    while [ $TOTAL -lt $DOCS_PER_INDEX ]; do
-        # Build bulk request
-        BULK=""
-        REMAINING=$((DOCS_PER_INDEX - TOTAL))
-        CURRENT_BATCH=$BATCH_SIZE
-        if [ $REMAINING -lt $BATCH_SIZE ]; then
-            CURRENT_BATCH=$REMAINING
-        fi
+    seed_index "$INDEX"
 
-        for ((i=0; i<CURRENT_BATCH; i++)); do
-            # Generate ~1KB of random data per document
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-            RANDOM_NUM=$((RANDOM % 1000000))
-            RANDOM_FLOAT=$(echo "scale=2; $RANDOM / 32767 * 100" | bc 2>/dev/null || echo "$((RANDOM % 10000)).$((RANDOM % 100))")
-            # Pad with random text to reach ~1KB per doc
-            PADDING=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9 ' | head -c 700)
-            BULK+=$'{"index":{}}\n'
-            BULK+="{\"timestamp\":\"${TIMESTAMP}\",\"value\":${RANDOM_NUM},\"metric\":${RANDOM_FLOAT},\"status\":\"active\",\"host\":\"server-$((RANDOM % 10))\",\"message\":\"${PADDING}\"}"$'\n'
-        done
-
-        RESPONSE=$($CURL -XPOST "${ES_URL}/${INDEX}/_bulk" -H 'Content-Type: application/x-ndjson' --data-binary "$BULK" 2>&1)
-
-        TOTAL=$((TOTAL + CURRENT_BATCH))
-        PERCENT=$((TOTAL * 100 / DOCS_PER_INDEX))
-        printf "\r  [${INDEX}] Progress: %d/%d docs (%d%%)" $TOTAL $DOCS_PER_INDEX $PERCENT
-    done
-
-    # Force refresh
     $CURL -XPOST "${ES_URL}/${INDEX}/_refresh" > /dev/null 2>&1
 
-    # Show index size
-    echo ""
     SIZE=$($CURL "${ES_URL}/_cat/indices/${INDEX}?h=pri.store.size" 2>/dev/null | tr -d '[:space:]')
-    echo "  [${INDEX}] Done! Size: ${SIZE}"
+    printf "\n  [${INDEX}] Done! Size: %s\n" "$SIZE"
 done
 
 echo ""
