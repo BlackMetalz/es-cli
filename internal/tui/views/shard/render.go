@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -25,23 +26,22 @@ func (m *Model) updateTable() {
 }
 
 // postProcessTable colorizes shard state and highlights the selected row.
+// The selected line is identified by matching multiple cells from the row data
+// because a single index has many rows in this view (one per shard × prirep),
+// so matching by index name alone would always land on the first row of the group.
 func (m *Model) postProcessTable(tableView string) string {
 	lines := strings.Split(tableView, "\n")
 
-	// Get the selected index name for highlighting
-	var selectedIndex string
-	cursor := m.table.Cursor()
-	if cursor >= 0 && cursor < len(m.filtered) {
-		selectedIndex = m.filtered[cursor].Index
+	selectedLine := m.findSelectedLine(lines)
+
+	var selectedNameToHighlight string
+	if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.filtered) {
+		selectedNameToHighlight = m.filtered[cursor].Index
+		if len(selectedNameToHighlight) > m.colWidths[0]-1 && m.colWidths[0] > 1 {
+			selectedNameToHighlight = selectedNameToHighlight[:m.colWidths[0]-1]
+		}
 	}
 
-	// Truncated name as it appears in the table
-	truncatedName := selectedIndex
-	if len(truncatedName) > m.colWidths[0]-1 && m.colWidths[0] > 1 {
-		truncatedName = truncatedName[:m.colWidths[0]-1]
-	}
-
-	selectedDone := false
 	for i, line := range lines {
 		// Colorize state values
 		if strings.Contains(line, "STARTED") {
@@ -57,20 +57,47 @@ func (m *Model) postProcessTable(tableView string) string {
 			lines[i] = strings.ReplaceAll(lines[i], "UNASSIGNED", theme.HealthRedStyle.Render("UNASSIGNED"))
 		}
 
-		// Highlight the selected row's index name
-		if !selectedDone && selectedIndex != "" {
-			nameToFind := truncatedName
-			if strings.Contains(line, selectedIndex) {
-				nameToFind = selectedIndex
-			}
-			if strings.Contains(line, nameToFind) {
-				highlighted := theme.TableSelectedStyle.Render(nameToFind)
-				lines[i] = strings.Replace(lines[i], nameToFind, highlighted, 1)
-				selectedDone = true
-			}
+		if i == selectedLine && selectedNameToHighlight != "" {
+			highlighted := theme.TableSelectedStyle.Render(selectedNameToHighlight)
+			lines[i] = strings.Replace(lines[i], selectedNameToHighlight, highlighted, 1)
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// findSelectedLine returns the index in lines that corresponds to the cursor's row,
+// or -1 if not found. Matches on (index, shard, prirep) which is unique per row;
+// node is appended when present to disambiguate replicas of the same shard.
+func (m *Model) findSelectedLine(lines []string) int {
+	selRow := m.table.SelectedRow()
+	if len(selRow) < 8 {
+		return -1
+	}
+
+	selIndex := selRow[0]
+	if len(selIndex) > m.colWidths[0]-1 && m.colWidths[0] > 1 {
+		selIndex = selIndex[:m.colWidths[0]-1]
+	}
+	selShard := strings.TrimSpace(selRow[1])
+	selPrirep := strings.TrimSpace(selRow[2])
+	selNode := strings.TrimSpace(selRow[7])
+
+	pattern := regexp.QuoteMeta(selIndex) + `\s+` +
+		regexp.QuoteMeta(selShard) + `\s+` +
+		regexp.QuoteMeta(selPrirep) + `(\s|$)`
+	if selNode != "" {
+		pattern += `.*` + regexp.QuoteMeta(selNode)
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return -1
+	}
+	for i, line := range lines {
+		if re.MatchString(line) {
+			return i
+		}
+	}
+	return -1
 }
 
 func rightAlign(s string, width int) string {
