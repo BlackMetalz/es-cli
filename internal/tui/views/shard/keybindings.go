@@ -10,6 +10,7 @@ type KeyMap struct {
 	SortByDocs  key.Binding
 	SortByStore key.Binding
 	Explain     key.Binding
+	RetryAlloc  key.Binding
 	ToggleAll   key.Binding
 	Refresh     key.Binding
 	Search      key.Binding
@@ -46,6 +47,10 @@ func DefaultKeyMap() KeyMap {
 		Explain: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "explain alloc"),
+		),
+		RetryAlloc: key.NewBinding(
+			key.WithKeys("R"),
+			key.WithHelp("Shift+R", "retry alloc"),
 		),
 		ToggleAll: key.NewBinding(
 			key.WithKeys("a"),

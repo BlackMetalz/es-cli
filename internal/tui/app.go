@@ -547,7 +547,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 	if a.readOnly {
 		switch pa.Type {
 		case "close", "open", "delete", "delete_ilm", "delete_template",
-			"edit_ilm", "edit_template", "set_allocation":
+			"edit_ilm", "edit_template", "set_allocation", "retry_allocation":
 			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
 		}
 	}
@@ -673,7 +673,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 			return msg
 		}
 
-	case "close", "open", "delete", "delete_ilm", "delete_template":
+	case "close", "open", "delete", "delete_ilm", "delete_template", "retry_allocation":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index

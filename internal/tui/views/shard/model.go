@@ -23,6 +23,10 @@ type ErrorMsg struct {
 	Err error
 }
 
+// RetryCompleteMsg is dispatched by the app after POST /_cluster/reroute?retry_failed=true
+// succeeds, so the shard view can refresh.
+type RetryCompleteMsg struct{}
+
 type SortField int
 
 const (
@@ -127,6 +131,10 @@ func (m *Model) Update(msg tea.Msg) (views.View, tea.Cmd) {
 		m.loading = false
 		return m, nil
 
+	case RetryCompleteMsg:
+		m.loading = true
+		return m, m.fetchShards()
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -200,6 +208,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 				m.pendingAction = &views.PendingAction{Type: "view_detail", Index: index}
 			}
 		}
+		return m, nil
+
+	case key.Matches(msg, m.keys.RetryAlloc):
+		m.pendingAction = &views.PendingAction{Type: "retry_allocation"}
 		return m, nil
 
 	case key.Matches(msg, m.keys.ToggleAll):
@@ -342,6 +354,7 @@ func (m *Model) HelpGroups() []views.HelpGroup {
 			Bindings: []key.Binding{
 				m.keys.Search,
 				m.keys.Explain,
+				m.keys.RetryAlloc,
 				m.keys.Refresh,
 				m.keys.ToggleAll,
 				m.keys.Help,

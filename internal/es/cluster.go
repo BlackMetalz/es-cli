@@ -46,3 +46,13 @@ func (c *Client) SetAllocationSetting(value string) error {
 	}
 	return nil
 }
+
+// RetryFailedAllocation calls POST /_cluster/reroute?retry_failed=true to retry
+// shard allocations that previously failed past the max-retries limit.
+func (c *Client) RetryFailedAllocation() error {
+	_, err := c.Post("/_cluster/reroute?retry_failed=true", "")
+	if err != nil {
+		return fmt.Errorf("failed to retry shard allocation: %w", err)
+	}
+	return nil
+}
