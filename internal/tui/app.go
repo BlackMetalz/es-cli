@@ -152,7 +152,7 @@ func (a *App) syncHeader() {
 // filterReadOnlyGroups removes destructive keybindings (create/edit/delete/open-close/maintenance)
 // from help groups so they don't appear in read-only mode.
 func filterReadOnlyGroups(groups []views.HelpGroup) []views.HelpGroup {
-	blocked := map[string]bool{"n": true, "d": true, "o": true, "e": true, "m": true}
+	blocked := map[string]bool{"n": true, "d": true, "o": true, "e": true, "m": true, "R": true}
 	var result []views.HelpGroup
 	for _, g := range groups {
 		var bindings []key.Binding
@@ -469,6 +469,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
 		return a, tea.Batch(cmd, viewCmd)
 	}
+	if msg, ok := msg.(shardview.RetryCompleteMsg); ok {
+		cmd := a.setFlash("Retry triggered for failed shard allocations", theme.StatusBarSuccessStyle)
+		var viewCmd tea.Cmd
+		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
+		return a, tea.Batch(cmd, viewCmd)
+	}
 
 	// App-level keys (only when view is not in input mode)
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -721,6 +727,11 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return flashErrorMsg{err: err}
 				}
 				return templateview.ActionCompleteMsg{Action: "deleted", Template: indexName}
+			case "retry_allocation":
+				if err := a.client.RetryFailedAllocation(); err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return shardview.RetryCompleteMsg{}
 			}
 			if err != nil {
 				return flashErrorMsg{err: err}
@@ -737,20 +748,22 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) confirmOverlayView() string {
-	action := a.confirmAction
-	resource := "index"
-	switch action {
+	var body string
+	switch a.confirmAction {
+	case "retry_allocation":
+		body = "Retry failed shard allocations across the cluster?\n" +
+			theme.HelpDescStyle.Render("POST /_cluster/reroute?retry_failed=true")
 	case "delete_ilm":
-		action = "delete"
-		resource = "ILM policy"
+		body = "Are you sure you want to delete ILM policy '" + a.confirmIndex + "'?"
 	case "delete_template":
-		action = "delete"
-		resource = "index template"
+		body = "Are you sure you want to delete index template '" + a.confirmIndex + "'?"
+	default:
+		body = "Are you sure you want to " + a.confirmAction + " index '" + a.confirmIndex + "'?"
 	}
 
 	return theme.ModalStyle.Render(
 		theme.ModalTitleStyle.Render("Confirm") + "\n\n" +
-			"Are you sure you want to " + action + " " + resource + " '" + a.confirmIndex + "'?\n\n" +
+			body + "\n\n" +
 			theme.HelpKeyStyle.Render("y") + theme.HelpDescStyle.Render("/") + theme.HelpKeyStyle.Render("N"),
 	)
 }
