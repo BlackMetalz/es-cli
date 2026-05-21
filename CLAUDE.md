@@ -90,7 +90,7 @@ Thin HTTP wrapper around ES REST API:
 - `detail.go` — fetch index settings, mappings, aliases
 - `node.go` — list nodes via `_cat/nodes`
 - `shard.go` — list shards via `_cat/shards`
-- `cluster.go` — get/set cluster routing allocation setting
+- `cluster.go` — get/set cluster routing allocation, retry failed allocation
 - `dashboard.go` — aggregated cluster stats for dashboard view
 - `ilm.go` — ILM policy CRUD
 - `template.go` — index template CRUD
