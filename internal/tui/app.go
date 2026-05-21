@@ -395,6 +395,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// Tap dashboard loads to refresh header cluster info — header is otherwise
+	// only fetched once at startup, so it stays stale after the user fixes red/yellow status.
+	if dm, ok := msg.(dashview.DashboardLoadedMsg); ok && dm.Data != nil {
+		if dm.Data.Health != "" {
+			a.header.ClusterHealth = dm.Data.Health
+		}
+		if dm.Data.Version != "" {
+			a.header.ESVersion = dm.Data.Version
+		}
+	}
+
 	// Route to command palette
 	if a.cmdPaletteOn {
 		var cmd tea.Cmd
@@ -512,6 +523,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Tap `r` refresh keypress at app level (don't consume — view still handles it)
+	// so the header's cluster info refreshes alongside the view's own data refresh.
+	// Every view uses `r` for refresh, and the dashboard already updates the header
+	// directly from its loaded data, so it gets a redundant fetch we accept for simplicity.
+	var headerRefreshCmd tea.Cmd
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && !a.currentView().IsInputMode() && keyMsg.String() == "r" {
+		headerRefreshCmd = a.fetchClusterInfo()
+	}
+
 	// Route to current view
 	var cmd tea.Cmd
 	a.viewStack[len(a.viewStack)-1], cmd = a.currentView().Update(msg)
@@ -522,6 +542,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	a.syncHeader()
+	if headerRefreshCmd != nil {
+		cmd = tea.Batch(cmd, headerRefreshCmd)
+	}
 	return a, cmd
 }
 
@@ -546,7 +569,7 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	a.switchView(v)
-	return a, v.Init()
+	return a, tea.Batch(v.Init(), a.fetchClusterInfo())
 }
 
 func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) {
