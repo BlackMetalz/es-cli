@@ -132,8 +132,6 @@ func (m *Model) Update(msg tea.Msg) (views.View, tea.Cmd) {
 
 	case ActionCompleteMsg:
 		m.pendingAction = nil
-		m.filter = ""
-		m.searchInput.SetValue("")
 		m.loading = true
 		return m, m.fetchIndices()
 
