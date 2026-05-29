@@ -113,6 +113,8 @@ var fixedColWidths = [8]int{30, 8, 8, 14, 12, 12, 16, 20}
 const (
 	minIndexColWidth = 10
 	maxIndexColWidth = 60
+	minNodeColWidth  = 10
+	maxNodeColWidth  = 60
 )
 
 func (m *Model) updateColumnWidths() {
@@ -137,6 +139,22 @@ func (m *Model) updateColumnWidths() {
 		idxWidth = maxIndexColWidth
 	}
 	m.colWidths[0] = idxWidth
+
+	// Compute node column width from actual data (RELOCATING nodes are long)
+	nodeWidth := len("node")
+	for _, s := range m.filtered {
+		if len(s.Node) > nodeWidth {
+			nodeWidth = len(s.Node)
+		}
+	}
+	nodeWidth += 2
+	if nodeWidth < minNodeColWidth {
+		nodeWidth = minNodeColWidth
+	}
+	if nodeWidth > maxNodeColWidth {
+		nodeWidth = maxNodeColWidth
+	}
+	m.colWidths[7] = nodeWidth
 
 	// Shrink index column if terminal is narrow
 	total := 0
