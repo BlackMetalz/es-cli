@@ -2,6 +2,7 @@ package index
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -311,8 +312,14 @@ func (m *Model) View() string {
 		}
 	}
 	b.WriteString("  ")
-	b.WriteString(theme.HelpKeyStyle.Render("total: "))
+	b.WriteString(theme.HelpKeyStyle.Render("total size: "))
 	b.WriteString(theme.HelpDescStyle.Render(m.totalStoreSize()))
+	b.WriteString("  ")
+	b.WriteString(theme.HelpKeyStyle.Render("total primary shard: "))
+	b.WriteString(theme.HelpDescStyle.Render(fmt.Sprintf("%d", m.totalPrimaryShards())))
+	b.WriteString("  ")
+	b.WriteString(theme.HelpKeyStyle.Render("total docs: "))
+	b.WriteString(theme.HelpDescStyle.Render(es.FormatCount(m.totalDocs())))
 	b.WriteString("\n")
 
 	if m.searching {
@@ -406,6 +413,24 @@ func (m *Model) totalStoreSize() string {
 		total += es.ParseSizeToBytes(idx.StoreSize)
 	}
 	return es.FormatBytes(fmt.Sprintf("%d", total))
+}
+
+func (m *Model) totalPrimaryShards() int64 {
+	var total int64
+	for _, idx := range m.filtered {
+		n, _ := strconv.ParseInt(strings.TrimSpace(idx.Pri), 10, 64)
+		total += n
+	}
+	return total
+}
+
+func (m *Model) totalDocs() int64 {
+	var total int64
+	for _, idx := range m.filtered {
+		n, _ := strconv.ParseInt(strings.TrimSpace(idx.DocsCount), 10, 64)
+		total += n
+	}
+	return total
 }
 
 func (m *Model) selectedStatus() string {

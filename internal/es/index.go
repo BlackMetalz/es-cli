@@ -104,6 +104,28 @@ func FormatBytes(bytesStr string) string {
 	return fmt.Sprintf("%.1f%s", b, units[i])
 }
 
+// FormatCount renders a document count compactly: full number under 1000,
+// "k" suffix between 1000 and 1M (e.g. 2k, 100k, 1.2k), and "M" suffix above 1M.
+func FormatCount(n int64) string {
+	if n < 1000 {
+		return strconv.FormatInt(n, 10)
+	}
+	if n < 1_000_000 {
+		v := float64(n) / 1000
+		return trimDecimal(v) + "k"
+	}
+	v := float64(n) / 1_000_000
+	return trimDecimal(v) + "M"
+}
+
+func trimDecimal(v float64) string {
+	s := fmt.Sprintf("%.1f", v)
+	if strings.HasSuffix(s, ".0") {
+		return strings.TrimSuffix(s, ".0")
+	}
+	return s
+}
+
 // ParseSizeToBytes converts human-readable size strings (e.g., "4.5kb", "1.2gb") to bytes.
 func ParseSizeToBytes(size string) int64 {
 	size = strings.TrimSpace(strings.ToLower(size))
