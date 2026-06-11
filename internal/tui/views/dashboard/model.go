@@ -157,14 +157,17 @@ func (m *Model) View() string {
 		{"Replica Shards", fmt.Sprintf("%d", d.ReplicaShards), ""},
 	})
 
-	// Cluster Health section
+	// Cluster Health section — active % first for easy monitoring
+	pctStr := fmt.Sprintf("%.2f%%", d.ActiveShardsPercent)
 	clusterHealth := renderSection("Cluster Health", []row{
-		{"Active Shards", fmt.Sprintf("%d (%.1f%%)", d.ActiveShards, d.ActiveShardsPercent), ""},
-		{"Active Primary", fmt.Sprintf("%d", d.ActivePrimaryShards), ""},
+		{"Active %", activePctStyle(d.ActiveShardsPercent).Render(pctStr), fmt.Sprintf("%d / %d shards", d.ActiveShards, d.ActiveShards+d.UnassignedShards+d.InitializingShards)},
 		{"Relocating", shardCountValue(d.RelocatingShards, theme.HealthYellowStyle), ""},
 		{"Initializing", shardCountValue(d.InitializingShards, theme.HealthYellowStyle), ""},
 		{"Unassigned", shardCountValue(d.UnassignedShards, theme.HealthRedStyle), ""},
+		{"Delayed", shardCountValue(d.DelayedUnassigned, theme.HealthYellowStyle), ""},
+		{"In-Flight", shardCountValue(d.InFlightFetch, theme.HealthYellowStyle), ""},
 		{"Pending Tasks", shardCountValue(d.PendingTasks, theme.HealthYellowStyle), ""},
+		{"Task Wait", formatTaskWait(d.TaskMaxWaitMs), ""},
 	})
 
 	// Layout: 4 boxes side-by-side when very wide, else 3 boxes + cluster health row below
@@ -383,6 +386,26 @@ func shardCountValue(n int, warnStyle lipgloss.Style) string {
 		return valueStyle.Render("0")
 	}
 	return warnStyle.Render(fmt.Sprintf("%d", n))
+}
+
+func activePctStyle(pct float64) lipgloss.Style {
+	if pct >= 100 {
+		return theme.HealthGreenStyle
+	}
+	if pct >= 75 {
+		return theme.HealthYellowStyle
+	}
+	return theme.HealthRedStyle
+}
+
+func formatTaskWait(ms int) string {
+	if ms == 0 {
+		return valueStyle.Render("0ms")
+	}
+	if ms >= 1000 {
+		return theme.HealthYellowStyle.Render(fmt.Sprintf("%dms", ms))
+	}
+	return valueStyle.Render(fmt.Sprintf("%dms", ms))
 }
 
 func renderSection(title string, rows []row) string {

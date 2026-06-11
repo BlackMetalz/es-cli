@@ -37,6 +37,9 @@ type DashboardData struct {
 	RelocatingShards    int
 	InitializingShards  int
 	UnassignedShards    int
+	DelayedUnassigned   int
+	InFlightFetch       int
+	TaskMaxWaitMs       int
 	PendingTasks        int
 	ActiveShardsPercent float64
 
@@ -176,6 +179,9 @@ func (c *Client) GetDashboardData() (*DashboardData, error) {
 			d.RelocatingShards = jsonInt(clHealth["relocating_shards"])
 			d.InitializingShards = jsonInt(clHealth["initializing_shards"])
 			d.UnassignedShards = jsonInt(clHealth["unassigned_shards"])
+			d.DelayedUnassigned = jsonInt(clHealth["delayed_unassigned_shards"])
+			d.InFlightFetch = jsonInt(clHealth["number_of_in_flight_fetch"])
+			d.TaskMaxWaitMs = jsonInt(clHealth["task_max_waiting_in_queue_millis"])
 			d.PendingTasks = jsonInt(clHealth["number_of_pending_tasks"])
 			d.ActiveShardsPercent = jsonFloat(clHealth["active_shards_percent_as_number"])
 		}
@@ -196,9 +202,13 @@ var trailingNumRe = regexp.MustCompile(`^(.*?)([-._])(\d[\d.]*)$`)
 // GetIndexPatternStats fetches all indices (including hidden) and groups them by
 // detected pattern. Indices like demo-1, demo-2 are collapsed to demo-*.
 func (c *Client) GetIndexPatternStats() ([]IndexPatternStat, error) {
+	// expand_wildcards=all is ES 7+ only; fall back to the plain URL on older clusters
 	data, err := c.Get("/_cat/indices?format=json&h=index,pri,rep,store.size&bytes=b&expand_wildcards=all")
 	if err != nil {
-		return nil, err
+		data, err = c.Get("/_cat/indices?format=json&h=index,pri,rep,store.size&bytes=b")
+		if err != nil {
+			return nil, err
+		}
 	}
 	var rows []map[string]interface{}
 	if err := json.Unmarshal(data, &rows); err != nil {
