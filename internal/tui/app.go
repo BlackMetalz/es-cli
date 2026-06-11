@@ -184,10 +184,11 @@ func newRouter() *commands.Router {
 	return r
 }
 
-func NewApp(client *es.Client, clusterURL, clusterName string, readOnly bool) *App {
+func NewApp(client *es.Client, clusterURL, clusterName, cliVersion string, readOnly bool) *App {
 	h := header.New(clusterURL)
 	h.User = client.Username()
 	h.ClusterName = clusterName
+	h.CLIVersion = cliVersion
 	dashView := dashview.New(client)
 
 	h.ViewName = dashView.Name()

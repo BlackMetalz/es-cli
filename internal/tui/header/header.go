@@ -13,6 +13,7 @@ type Model struct {
 	ClusterURL    string
 	ClusterName   string
 	ClusterHealth string
+	CLIVersion    string
 	ESVersion     string
 	User          string
 	ViewName      string
@@ -78,17 +79,16 @@ func (m Model) View() string {
 		user = "n/a"
 	}
 
-	health := m.ClusterHealth
-	if health == "" {
-		health = "n/a"
+	cliVersion := m.CLIVersion
+	if cliVersion == "" {
+		cliVersion = "dev"
 	}
-	healthStyled := theme.HealthStyle(health).Render(health)
 
 	infoLines := []string{
 		labelStyle.Render("URL:     ") + valueStyle.Render(m.ClusterURL),
 		labelStyle.Render("Cluster: ") + valueStyle.Render(clusterName),
-		labelStyle.Render("Health:  ") + healthStyled,
 		labelStyle.Render("User:    ") + valueStyle.Render(user),
+		labelStyle.Render("CLI Rev: ") + valueStyle.Render(cliVersion),
 		labelStyle.Render("ES Rev:  ") + valueStyle.Render(esVersion),
 	}
 

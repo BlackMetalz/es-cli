@@ -90,7 +90,7 @@ func main() {
 	}
 
 	client := es.NewClient(cluster.URL, cluster.Username, cluster.Password)
-	app := tui.NewApp(client, cluster.URL, cluster.Name, flags.readOnly)
+	app := tui.NewApp(client, cluster.URL, cluster.Name, version, flags.readOnly)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

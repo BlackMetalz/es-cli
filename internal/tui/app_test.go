@@ -22,7 +22,7 @@ func newTestClient() *es.Client {
 
 func TestNewApp(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	if app.header.ClusterURL != "http://localhost:9200" {
 		t.Fatal("expected cluster URL set")
@@ -37,7 +37,7 @@ func TestNewApp(t *testing.T) {
 
 func TestApp_WindowResize(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	msg := tea.WindowSizeMsg{Width: 120, Height: 40}
 	_, _ = app.Update(msg)
@@ -52,7 +52,7 @@ func TestApp_WindowResize(t *testing.T) {
 
 func TestApp_OpenCreateIndex(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	// Switch to index view first (default is dashboard)
 	app.handleCommand("index")
@@ -68,7 +68,7 @@ func TestApp_OpenCreateIndex(t *testing.T) {
 
 func TestApp_CancelCreateIndex(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.overlay = overlayCreateIndex
 	app.createIndexFm = createindex.New()
 
@@ -88,7 +88,7 @@ func TestApp_SubmitCreateIndex(t *testing.T) {
 		w.Write([]byte(`[]`))
 	}))
 	client := es.NewClient(server.URL, "elastic", "elastic")
-	app := NewApp(client, server.URL, "test", false)
+	app := NewApp(client, server.URL, "test", "dev", false)
 	app.overlay = overlayCreateIndex
 
 	_, cmd := app.Update(createindex.SubmitMsg{Name: "new-index", Shards: 1, Replicas: 1})
@@ -103,7 +103,7 @@ func TestApp_SubmitCreateIndex(t *testing.T) {
 
 func TestApp_ConfirmOverlay(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.width = 80
 	app.height = 24
 
@@ -133,7 +133,7 @@ func TestApp_ConfirmOverlay(t *testing.T) {
 
 func TestApp_ConfirmCancel(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.overlay = overlayConfirm
 	app.confirmAction = "delete"
 	app.confirmIndex = "test-index"
@@ -151,7 +151,7 @@ func TestApp_ConfirmAccept(t *testing.T) {
 		w.Write([]byte(`{"acknowledged":true}`))
 	}))
 	client := es.NewClient(server.URL, "elastic", "elastic")
-	app := NewApp(client, server.URL, "test", false)
+	app := NewApp(client, server.URL, "test", "dev", false)
 	app.overlay = overlayConfirm
 	app.confirmAction = "delete"
 	app.confirmIndex = "test-index"
@@ -169,7 +169,7 @@ func TestApp_ConfirmAccept(t *testing.T) {
 
 func TestApp_ConfirmViewCentered(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.width = 80
 	app.height = 24
 	app.header.Width = 80
@@ -185,7 +185,7 @@ func TestApp_ConfirmViewCentered(t *testing.T) {
 
 func TestApp_View(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.width = 80
 	app.height = 24
 	app.header.Width = 80
@@ -198,7 +198,7 @@ func TestApp_View(t *testing.T) {
 
 func TestApp_ViewStack(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	if len(app.viewStack) != 1 {
 		t.Fatalf("expected 1 view, got %d", len(app.viewStack))
@@ -210,7 +210,7 @@ func TestApp_ViewStack(t *testing.T) {
 
 func TestApp_PushPopView(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.width = 80
 	app.height = 24
 
@@ -243,7 +243,7 @@ func TestApp_PushPopView(t *testing.T) {
 
 func TestApp_PopViewMinimum(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	// Pop on single view should not crash
 	app.popView()
@@ -254,7 +254,7 @@ func TestApp_PopViewMinimum(t *testing.T) {
 
 func TestApp_HelpOverlay(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 	app.width = 80
 	app.height = 24
 
@@ -276,7 +276,7 @@ func TestApp_HelpOverlay(t *testing.T) {
 
 func TestApp_FlashMessage(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", false)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", false)
 
 	cmd := app.setFlash("test message", theme.StatusBarSuccessStyle)
 	if app.flashMsg != "test message" {
@@ -295,7 +295,7 @@ func TestApp_FlashMessage(t *testing.T) {
 
 func TestApp_ReadOnlyBlocksDelete(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", true)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", true)
 	app.width = 80
 	app.height = 24
 
@@ -319,7 +319,7 @@ func TestApp_ReadOnlyBlocksDelete(t *testing.T) {
 
 func TestApp_ReadOnlyBlocksCreate(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", true)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", true)
 
 	// Switch to index view
 	app.handleCommand("index")
@@ -338,7 +338,7 @@ func TestApp_ReadOnlyBlocksCreate(t *testing.T) {
 
 func TestApp_ReadOnlyAllowsViewDetail(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", true)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", true)
 	app.width = 80
 	app.height = 24
 
@@ -359,7 +359,7 @@ func TestApp_ReadOnlyAllowsViewDetail(t *testing.T) {
 
 func TestApp_ReadOnlyStatusBar(t *testing.T) {
 	client := newTestClient()
-	app := NewApp(client, "http://localhost:9200", "test", true)
+	app := NewApp(client, "http://localhost:9200", "test", "dev", true)
 	app.width = 80
 	app.height = 24
 	app.header.Width = 80
