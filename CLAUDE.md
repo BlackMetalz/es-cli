@@ -92,7 +92,7 @@ Thin HTTP wrapper around ES REST API:
 - `node.go` — list nodes via `_cat/nodes`
 - `shard.go` — list shards via `_cat/shards`
 - `cluster.go` — get/set cluster routing allocation, retry failed allocation
-- `dashboard.go` — aggregated cluster stats for dashboard view (includes `_cluster/health` shard breakdown: active, relocating, initializing, unassigned, pending tasks)
+- `dashboard.go` — aggregated cluster stats for dashboard view (includes `_cluster/health` shard breakdown: active %, relocating, initializing, unassigned, delayed, in-flight fetch, pending tasks, task wait ms)
 - `threadpool.go` — thread pool stats via `_cat/thread_pool`
 - `ilm.go` — ILM policy CRUD
 - `template.go` — index template CRUD

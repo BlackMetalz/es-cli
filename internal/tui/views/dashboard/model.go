@@ -122,17 +122,11 @@ func (m *Model) View() string {
 	d := m.data
 
 	// Overview section
-	healthDot := theme.HealthStyle(d.Health).Render("●")
-	healthDesc := d.HealthDescription
-	if healthDesc == "" {
-		healthDesc = d.Health
-	}
 	license := d.License
 	if license == "" {
 		license = "n/a"
 	}
 	overview := renderSection("Overview", []row{
-		{"Health", healthDot + " " + healthDesc, ""},
 		{"Version", d.Version, ""},
 		{"Uptime", formatUptime(d.Uptime), ""},
 		{"License", theme.HelpKeyStyle.Render(license), ""},
@@ -481,9 +475,6 @@ func (m *Model) IsInputMode() bool                      { return false }
 func (m *Model) PopPendingAction() *views.PendingAction { return nil }
 
 func (m *Model) StatusInfo() string {
-	if m.data != nil {
-		return "cluster: " + m.data.Health
-	}
 	return ""
 }
 
