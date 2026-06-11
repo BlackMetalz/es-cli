@@ -27,6 +27,7 @@ import (
 	queryview "github.com/kienlt/es-cli/internal/tui/views/query"
 	shardview "github.com/kienlt/es-cli/internal/tui/views/shard"
 	templateview "github.com/kienlt/es-cli/internal/tui/views/template"
+	threadpoolview "github.com/kienlt/es-cli/internal/tui/views/threadpool"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -179,6 +180,7 @@ func newRouter() *commands.Router {
 	r.Register(commands.Command{Name: "ilm", Aliases: []string{"ilm-policy"}, Description: "ILM policies"})
 	r.Register(commands.Command{Name: "template", Aliases: []string{"templates", "index-template"}, Description: "Index templates"})
 	r.Register(commands.Command{Name: "discovery", Description: "Query logs"})
+	r.Register(commands.Command{Name: "threadpool", Aliases: []string{"tp", "thread-pool"}, Description: "Thread pool stats"})
 	return r
 }
 
@@ -565,6 +567,8 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		v = templateview.New(a.client)
 	case "discovery":
 		v = queryview.New(a.client)
+	case "threadpool":
+		v = threadpoolview.New(a.client)
 	default:
 		return a, nil
 	}

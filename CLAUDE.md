@@ -64,6 +64,7 @@ Uses Bubble Tea's Elm architecture (Model → Update → View):
 - **`views/detail/`** — index detail view with 3 tabs (Settings, Mappings, Aliases). JSON pretty-print with syntax coloring. Scrollable viewport.
 - **`views/node/`** — node list view. Same split pattern (model/keybindings/sort/render/filter). Shows CPU, heap, RAM, disk, load, role, master status. `m` key triggers maintenance (allocation menu).
 - **`views/shard/`** — shard list view. Shows index, shard, prirep, state, docs, store, ip, node. Colorized state (STARTED=green, UNASSIGNED=red).
+- **`views/threadpool/`** — thread pool view. Shows per-node pool stats: node, name, type, active, size, queue, rejected, largest. Colorized: rejected > 0 = red, queue > 0 = yellow, active >= size (pool full) = yellow. Hides `direct`-type pools by default (`a` to toggle). Sort by name/node/active/queue/rejected.
 
 - **`views/ilm/`** — ILM policy list view. Table: name, version, delete after. Create/edit/delete policies. Hides system+managed by default.
 - **`views/template/`** — index template list view. Table: name, patterns, shards, replicas, ILM policy. Create/edit with ILM autocomplete + duplicate detection.
@@ -72,7 +73,7 @@ Uses Bubble Tea's Elm architecture (Model → Update → View):
 
 ### Command Router (`internal/tui/commands/`)
 
-- **`router.go`** — command registry with match and autocomplete. Registered commands: `index`, `node`, `shard`, `dashboard`, `ilm`, `template`, `discovery`. Supports aliases.
+- **`router.go`** — command registry with match and autocomplete. Registered commands: `index`, `node`, `shard`, `dashboard`, `ilm`, `template`, `discovery`, `threadpool` (aliases: `tp`, `thread-pool`). Supports aliases.
 
 ### Components (`internal/tui/components/`)
 
@@ -91,7 +92,8 @@ Thin HTTP wrapper around ES REST API:
 - `node.go` — list nodes via `_cat/nodes`
 - `shard.go` — list shards via `_cat/shards`
 - `cluster.go` — get/set cluster routing allocation, retry failed allocation
-- `dashboard.go` — aggregated cluster stats for dashboard view
+- `dashboard.go` — aggregated cluster stats for dashboard view (includes `_cluster/health` shard breakdown: active, relocating, initializing, unassigned, pending tasks)
+- `threadpool.go` — thread pool stats via `_cat/thread_pool`
 - `ilm.go` — ILM policy CRUD
 - `template.go` — index template CRUD
 - `search.go` — document search, field mapping extraction for discovery view

@@ -31,6 +31,15 @@ type DashboardData struct {
 	PrimaryShards int
 	ReplicaShards int
 
+	// Cluster health shard details (from _cluster/health)
+	ActiveShards        int
+	ActivePrimaryShards int
+	RelocatingShards    int
+	InitializingShards  int
+	UnassignedShards    int
+	PendingTasks        int
+	ActiveShardsPercent float64
+
 	// Index pattern breakdown
 	PatternStats []IndexPatternStat
 }
@@ -157,7 +166,22 @@ func (c *Client) GetDashboardData() (*DashboardData, error) {
 		}
 	}
 
-	// 5. Index pattern stats (includes hidden indices)
+	// 5. GET /_cluster/health — shard-level breakdown
+	healthData, err := c.Get("/_cluster/health")
+	if err == nil {
+		var clHealth map[string]interface{}
+		if json.Unmarshal(healthData, &clHealth) == nil {
+			d.ActiveShards = jsonInt(clHealth["active_shards"])
+			d.ActivePrimaryShards = jsonInt(clHealth["active_primary_shards"])
+			d.RelocatingShards = jsonInt(clHealth["relocating_shards"])
+			d.InitializingShards = jsonInt(clHealth["initializing_shards"])
+			d.UnassignedShards = jsonInt(clHealth["unassigned_shards"])
+			d.PendingTasks = jsonInt(clHealth["number_of_pending_tasks"])
+			d.ActiveShardsPercent = jsonFloat(clHealth["active_shards_percent_as_number"])
+		}
+	}
+
+	// 6. Index pattern stats (includes hidden indices)
 	if ps, err := c.GetIndexPatternStats(); err == nil {
 		d.PatternStats = ps
 	}

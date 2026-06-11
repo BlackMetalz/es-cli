@@ -157,12 +157,46 @@ func (m *Model) View() string {
 		{"Replica Shards", fmt.Sprintf("%d", d.ReplicaShards), ""},
 	})
 
-	// Layout: horizontal if wide enough, else vertical
-	var content string
-	if m.width >= 80 {
+	// Cluster Health section
+	clusterHealth := renderSection("Cluster Health", []row{
+		{"Active Shards", fmt.Sprintf("%d (%.1f%%)", d.ActiveShards, d.ActiveShardsPercent), ""},
+		{"Active Primary", fmt.Sprintf("%d", d.ActivePrimaryShards), ""},
+		{"Relocating", shardCountValue(d.RelocatingShards, theme.HealthYellowStyle), ""},
+		{"Initializing", shardCountValue(d.InitializingShards, theme.HealthYellowStyle), ""},
+		{"Unassigned", shardCountValue(d.UnassignedShards, theme.HealthRedStyle), ""},
+		{"Pending Tasks", shardCountValue(d.PendingTasks, theme.HealthYellowStyle), ""},
+	})
+
+	// Layout: 4 boxes side-by-side when very wide, else 3 boxes + cluster health row below
+	var topContent string
+	if m.width >= 120 {
+		boxWidth := (m.width - 6) / 4
+
+		s := sectionStyle.Width(boxWidth)
+		box1 := s.Render(overview)
+		box2 := s.Render(nodes)
+		box3 := s.Render(indices)
+		box4 := s.Render(clusterHealth)
+
+		h1 := lipgloss.Height(box1)
+		h2 := lipgloss.Height(box2)
+		h3 := lipgloss.Height(box3)
+		h4 := lipgloss.Height(box4)
+		maxH := h1
+		for _, h := range []int{h2, h3, h4} {
+			if h > maxH {
+				maxH = h
+			}
+		}
+
+		styledOverview := s.Render(overview + strings.Repeat("\n", maxH-h1))
+		styledNodes := s.Render(nodes + strings.Repeat("\n", maxH-h2))
+		styledIndices := s.Render(indices + strings.Repeat("\n", maxH-h3))
+		styledHealth := s.Render(clusterHealth + strings.Repeat("\n", maxH-h4))
+		topContent = lipgloss.JoinHorizontal(lipgloss.Top, styledOverview, styledNodes, styledIndices, styledHealth)
+	} else if m.width >= 80 {
 		boxWidth := (m.width - 6) / 3
 
-		// Render all 3 boxes first, then find max height and re-render with equal height
 		s := sectionStyle.Width(boxWidth)
 		box1 := s.Render(overview)
 		box2 := s.Render(nodes)
@@ -179,27 +213,27 @@ func (m *Model) View() string {
 			maxH = h3
 		}
 
-		// Pad content to equalize rendered box heights
-		pad1 := strings.Repeat("\n", maxH-h1)
-		pad2 := strings.Repeat("\n", maxH-h2)
-		pad3 := strings.Repeat("\n", maxH-h3)
-
-		styledOverview := s.Render(overview + pad1)
-		styledNodes := s.Render(nodes + pad2)
-		styledIndices := s.Render(indices + pad3)
-		content = lipgloss.JoinHorizontal(lipgloss.Top, styledOverview, styledNodes, styledIndices)
+		styledOverview := s.Render(overview + strings.Repeat("\n", maxH-h1))
+		styledNodes := s.Render(nodes + strings.Repeat("\n", maxH-h2))
+		styledIndices := s.Render(indices + strings.Repeat("\n", maxH-h3))
+		row1 := lipgloss.JoinHorizontal(lipgloss.Top, styledOverview, styledNodes, styledIndices)
+		row2 := sectionStyle.Width(m.width - 4).Render(clusterHealth)
+		topContent = row1 + "\n" + row2
 	} else {
-		styledOverview := sectionStyle.Width(m.width - 4).Render(overview)
-		styledNodes := sectionStyle.Width(m.width - 4).Render(nodes)
-		styledIndices := sectionStyle.Width(m.width - 4).Render(indices)
-		content = lipgloss.JoinVertical(lipgloss.Left, styledOverview, styledNodes, styledIndices)
+		w := m.width - 4
+		topContent = lipgloss.JoinVertical(lipgloss.Left,
+			sectionStyle.Width(w).Render(overview),
+			sectionStyle.Width(w).Render(nodes),
+			sectionStyle.Width(w).Render(indices),
+			sectionStyle.Width(w).Render(clusterHealth),
+		)
 	}
 
 	// Index Analyze section: one wide box, content wraps into columns before hitting bottom
-	topH := lipgloss.Height(content) // height of the 3-box row (no leading \n yet)
+	topH := lipgloss.Height(topContent)
 	analyzeBox := m.renderAnalyzeBox(topH)
 
-	result := "\n" + content + "\n" + analyzeBox
+	result := "\n" + topContent + "\n" + analyzeBox
 
 	// Pad to fill available height so status bar sticks to bottom
 	contentHeight := lipgloss.Height(result)
@@ -343,6 +377,13 @@ type row struct {
 }
 
 var subtitleStyle = lipgloss.NewStyle().Foreground(theme.ColorGray)
+
+func shardCountValue(n int, warnStyle lipgloss.Style) string {
+	if n == 0 {
+		return valueStyle.Render("0")
+	}
+	return warnStyle.Render(fmt.Sprintf("%d", n))
+}
 
 func renderSection(title string, rows []row) string {
 	var b strings.Builder
