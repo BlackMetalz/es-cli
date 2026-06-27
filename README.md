@@ -19,8 +19,6 @@ A K9s-style terminal UI for managing Elasticsearch clusters. Built in Go using t
 ### Dashboard
 ![Dashboard](images/dashboard.png)
 
-![Dashboard_new](images/dashboard_new.png)
-
 ### Index
 ![Index](images/index.png)
 
@@ -38,6 +36,12 @@ A K9s-style terminal UI for managing Elasticsearch clusters. Built in Go using t
 
 ### Discovery
 ![Discovery](images/discovery.png)
+
+### Tasks
+
+![Tasks](./images/tasks.png)
+
+![Task Detail](./images/tasks.png)
 
 ## Install
 

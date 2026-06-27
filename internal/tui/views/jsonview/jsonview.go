@@ -100,7 +100,7 @@ func (m *Model) View() string {
 func (m *Model) Name() string                           { return m.title }
 func (m *Model) IsInputMode() bool                      { return false }
 func (m *Model) PopPendingAction() *views.PendingAction { return nil }
-func (m *Model) StatusInfo() string                     { return m.title }
+func (m *Model) StatusInfo() string                     { return "" }
 
 func (m *Model) HelpGroups() []views.HelpGroup {
 	return []views.HelpGroup{

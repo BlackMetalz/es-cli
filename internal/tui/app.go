@@ -26,6 +26,7 @@ import (
 	nodeview "github.com/kienlt/es-cli/internal/tui/views/node"
 	queryview "github.com/kienlt/es-cli/internal/tui/views/query"
 	shardview "github.com/kienlt/es-cli/internal/tui/views/shard"
+	taskview "github.com/kienlt/es-cli/internal/tui/views/task"
 	templateview "github.com/kienlt/es-cli/internal/tui/views/template"
 	threadpoolview "github.com/kienlt/es-cli/internal/tui/views/threadpool"
 
@@ -153,7 +154,7 @@ func (a *App) syncHeader() {
 // filterReadOnlyGroups removes destructive keybindings (create/edit/delete/open-close/maintenance)
 // from help groups so they don't appear in read-only mode.
 func filterReadOnlyGroups(groups []views.HelpGroup) []views.HelpGroup {
-	blocked := map[string]bool{"n": true, "d": true, "o": true, "e": true, "m": true, "R": true}
+	blocked := map[string]bool{"n": true, "d": true, "o": true, "e": true, "m": true, "R": true, "c": true}
 	var result []views.HelpGroup
 	for _, g := range groups {
 		var bindings []key.Binding
@@ -181,6 +182,7 @@ func newRouter() *commands.Router {
 	r.Register(commands.Command{Name: "template", Aliases: []string{"templates", "index-template"}, Description: "Index templates"})
 	r.Register(commands.Command{Name: "discovery", Description: "Query logs"})
 	r.Register(commands.Command{Name: "threadpool", Aliases: []string{"tp", "thread-pool"}, Description: "Thread pool stats"})
+	r.Register(commands.Command{Name: "tasks", Aliases: []string{"task", "t"}, Description: "Running tasks"})
 	return r
 }
 
@@ -489,6 +491,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
 		return a, tea.Batch(cmd, viewCmd)
 	}
+	if msg, ok := msg.(taskview.ActionCompleteMsg); ok {
+		cmd := a.setFlash(fmt.Sprintf("Task '%s' cancel requested", msg.TaskID), theme.StatusBarSuccessStyle)
+		var viewCmd tea.Cmd
+		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
+		return a, tea.Batch(cmd, viewCmd)
+	}
 
 	// App-level keys (only when view is not in input mode)
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -570,6 +578,8 @@ func (a *App) handleCommand(name string) (tea.Model, tea.Cmd) {
 		v = queryview.New(a.client)
 	case "threadpool":
 		v = threadpoolview.New(a.client)
+	case "tasks":
+		v = taskview.New(a.client)
 	default:
 		return a, nil
 	}
@@ -581,7 +591,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 	if a.readOnly {
 		switch pa.Type {
 		case "close", "open", "delete", "delete_ilm", "delete_template",
-			"edit_ilm", "edit_template", "set_allocation", "retry_allocation":
+			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task":
 			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
 		}
 	}
@@ -707,6 +717,26 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 			return msg
 		}
 
+	case "cancel_task":
+		a.overlay = overlayConfirm
+		a.confirmAction = pa.Type
+		a.confirmIndex = pa.Index
+		return a, nil
+
+	case "view_task_detail":
+		taskID := pa.Index
+		client := a.client
+		jv := jsonview.New("Task: "+taskID, func() tea.Msg {
+			data, err := client.GetTaskDetail(taskID)
+			if err != nil {
+				return jsonview.ErrorMsg{Err: err}
+			}
+			return jsonview.DataLoadedMsg{Data: data}
+		})
+		jv.SetSize(a.width, a.viewHeight())
+		a.pushView(jv)
+		return a, jv.Init()
+
 	case "close", "open", "delete", "delete_ilm", "delete_template", "retry_allocation":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
@@ -760,6 +790,11 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return flashErrorMsg{err: err}
 				}
 				return shardview.RetryCompleteMsg{}
+			case "cancel_task":
+				if err := a.client.CancelTask(indexName); err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return taskview.ActionCompleteMsg{TaskID: indexName}
 			}
 			if err != nil {
 				return flashErrorMsg{err: err}
@@ -778,6 +813,10 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a *App) confirmOverlayView() string {
 	var body string
 	switch a.confirmAction {
+	case "cancel_task":
+		body = fmt.Sprintf("Cancel task '%s'?\n\n%s",
+			a.confirmIndex,
+			theme.HelpDescStyle.Render("POST /_tasks/"+a.confirmIndex+"/_cancel"))
 	case "retry_allocation":
 		body = "Retry failed shard allocations across the cluster?\n" +
 			theme.HelpDescStyle.Render("POST /_cluster/reroute?retry_failed=true")
