@@ -12,6 +12,7 @@ type KeyMap struct {
 	ToggleAll      key.Binding
 	Cancel         key.Binding
 	CancelAll      key.Binding
+	ClearCache     key.Binding
 	Detail         key.Binding
 	Refresh        key.Binding
 	Search         key.Binding
@@ -56,6 +57,10 @@ func DefaultKeyMap() KeyMap {
 		CancelAll: key.NewBinding(
 			key.WithKeys("C"),
 			key.WithHelp("Shift+C", "cancel all tasks"),
+		),
+		ClearCache: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "clear cache"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),

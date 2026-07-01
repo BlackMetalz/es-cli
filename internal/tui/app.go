@@ -493,8 +493,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if msg, ok := msg.(taskview.ActionCompleteMsg); ok {
 		flashText := fmt.Sprintf("Task '%s' cancel requested", msg.TaskID)
-		if msg.All {
+		switch {
+		case msg.All:
 			flashText = "Cancel requested for all cancellable tasks"
+		case msg.ClearCache:
+			flashText = "Cluster cache cleared"
 		}
 		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
 		var viewCmd tea.Cmd
@@ -595,7 +598,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 	if a.readOnly {
 		switch pa.Type {
 		case "close", "open", "delete", "delete_ilm", "delete_template",
-			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task", "cancel_all_tasks":
+			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task", "cancel_all_tasks", "clear_cache":
 			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
 		}
 	}
@@ -721,7 +724,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 			return msg
 		}
 
-	case "cancel_task", "cancel_all_tasks":
+	case "cancel_task", "cancel_all_tasks", "clear_cache":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index
@@ -804,6 +807,11 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return flashErrorMsg{err: err}
 				}
 				return taskview.ActionCompleteMsg{All: true}
+			case "clear_cache":
+				if err := a.client.ClearCache(); err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return taskview.ActionCompleteMsg{ClearCache: true}
 			}
 			if err != nil {
 				return flashErrorMsg{err: err}
@@ -829,6 +837,9 @@ func (a *App) confirmOverlayView() string {
 	case "cancel_all_tasks":
 		body = theme.HealthRedStyle.Render("Cancel ALL cancellable tasks on the cluster?") + "\n\n" +
 			theme.HelpDescStyle.Render("POST /_tasks/_cancel")
+	case "clear_cache":
+		body = "Clear field data, query, and request caches cluster-wide?\n" +
+			theme.HelpDescStyle.Render("POST /_cache/clear")
 	case "retry_allocation":
 		body = "Retry failed shard allocations across the cluster?\n" +
 			theme.HelpDescStyle.Render("POST /_cluster/reroute?retry_failed=true")

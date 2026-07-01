@@ -56,3 +56,14 @@ func (c *Client) RetryFailedAllocation() error {
 	}
 	return nil
 }
+
+// ClearCache calls POST /_cache/clear to drop field data, query, and request
+// caches cluster-wide, freeing the heap they occupy. Caches rebuild on next
+// access, so this is non-destructive but causes a temporary cache-miss cost.
+func (c *Client) ClearCache() error {
+	_, err := c.Post("/_cache/clear", "")
+	if err != nil {
+		return fmt.Errorf("failed to clear cache: %w", err)
+	}
+	return nil
+}
