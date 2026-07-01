@@ -498,6 +498,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			flashText = "Cancel requested for all cancellable tasks"
 		case msg.ClearCache:
 			flashText = "Cluster cache cleared"
+		case msg.ClearScrolls:
+			flashText = "All open scroll contexts cleared"
 		}
 		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
 		var viewCmd tea.Cmd
@@ -598,7 +600,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 	if a.readOnly {
 		switch pa.Type {
 		case "close", "open", "delete", "delete_ilm", "delete_template",
-			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task", "cancel_all_tasks", "clear_cache":
+			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task", "cancel_all_tasks", "clear_cache", "clear_scrolls":
 			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
 		}
 	}
@@ -724,7 +726,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 			return msg
 		}
 
-	case "cancel_task", "cancel_all_tasks", "clear_cache":
+	case "cancel_task", "cancel_all_tasks", "clear_cache", "clear_scrolls":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index
@@ -812,6 +814,11 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return flashErrorMsg{err: err}
 				}
 				return taskview.ActionCompleteMsg{ClearCache: true}
+			case "clear_scrolls":
+				if err := a.client.ClearAllScrolls(); err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return taskview.ActionCompleteMsg{ClearScrolls: true}
 			}
 			if err != nil {
 				return flashErrorMsg{err: err}
@@ -840,6 +847,9 @@ func (a *App) confirmOverlayView() string {
 	case "clear_cache":
 		body = "Clear field data, query, and request caches cluster-wide?\n" +
 			theme.HelpDescStyle.Render("POST /_cache/clear")
+	case "clear_scrolls":
+		body = "Clear ALL open scroll contexts cluster-wide?\n" +
+			theme.HelpDescStyle.Render("DELETE /_search/scroll/_all")
 	case "retry_allocation":
 		body = "Retry failed shard allocations across the cluster?\n" +
 			theme.HelpDescStyle.Render("POST /_cluster/reroute?retry_failed=true")

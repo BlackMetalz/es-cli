@@ -24,9 +24,10 @@ type ErrorMsg struct {
 }
 
 type ActionCompleteMsg struct {
-	TaskID     string
-	All        bool
-	ClearCache bool
+	TaskID       string
+	All          bool
+	ClearCache   bool
+	ClearScrolls bool
 }
 
 type Model struct {
@@ -196,6 +197,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.ClearCache):
 		m.pendingAction = &views.PendingAction{Type: "clear_cache"}
+	case key.Matches(msg, m.keys.ClearScrolls):
+		m.pendingAction = &views.PendingAction{Type: "clear_scrolls"}
 	case key.Matches(msg, m.keys.Detail):
 		if sel := m.selectedTask(); sel != nil {
 			m.pendingAction = &views.PendingAction{Type: "view_task_detail", Index: sel.ID}
@@ -332,6 +335,7 @@ func (m *Model) HelpGroups() []views.HelpGroup {
 				m.keys.Cancel,
 				m.keys.CancelAll,
 				m.keys.ClearCache,
+				m.keys.ClearScrolls,
 			},
 		},
 		{

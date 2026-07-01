@@ -67,3 +67,16 @@ func (c *Client) ClearCache() error {
 	}
 	return nil
 }
+
+// ClearAllScrolls calls DELETE /_search/scroll/_all to release every open
+// scroll context cluster-wide immediately, instead of waiting for its
+// keep_alive to expire. Open scroll contexts pin heap and segment files and
+// count against search.max_open_scroll_context, so a client that leaks
+// scrolls (opens without clearing) can starve the cluster of new ones.
+func (c *Client) ClearAllScrolls() error {
+	_, err := c.Delete("/_search/scroll/_all")
+	if err != nil {
+		return fmt.Errorf("failed to clear scrolls: %w", err)
+	}
+	return nil
+}

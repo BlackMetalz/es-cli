@@ -13,6 +13,7 @@ type KeyMap struct {
 	Cancel         key.Binding
 	CancelAll      key.Binding
 	ClearCache     key.Binding
+	ClearScrolls   key.Binding
 	Detail         key.Binding
 	Refresh        key.Binding
 	Search         key.Binding
@@ -61,6 +62,10 @@ func DefaultKeyMap() KeyMap {
 		ClearCache: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "clear cache"),
+		),
+		ClearScrolls: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("Shift+S", "clear all scrolls"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
