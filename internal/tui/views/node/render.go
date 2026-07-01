@@ -7,7 +7,7 @@ import (
 	"github.com/kienlt/es-cli/internal/tui/theme"
 )
 
-var defaultColWidths = [12]int{16, 14, 7, 18, 7, 5, 9, 9, 9, 14, 8, 7}
+var defaultColWidths = [12]int{16, 14, 7, 15, 7, 5, 9, 9, 9, 14, 8, 7}
 
 const (
 	minNameColWidth = 10
@@ -21,7 +21,7 @@ func (m *Model) updateTable() {
 			n.Name,
 			n.IP,
 			rightAlign(n.HeapPercent, m.colWidths[2]),
-			rightAlign(formatHeapUsage(n.HeapCurrent, n.HeapMax), m.colWidths[3]),
+			centerAlign(formatHeapUsage(n.HeapCurrent, n.HeapMax), m.colWidths[3]),
 			rightAlign(n.RAMPercent, m.colWidths[4]),
 			rightAlign(n.CPU, m.colWidths[5]),
 			rightAlign(n.Load1m, m.colWidths[6]),
@@ -117,6 +117,16 @@ func rightAlign(s string, width int) string {
 		return s
 	}
 	return strings.Repeat(" ", width-n) + s
+}
+
+func centerAlign(s string, width int) string {
+	n := len(s)
+	if n >= width {
+		return s
+	}
+	pad := width - n
+	left := pad / 2
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", pad-left)
 }
 
 func (m *Model) updateColumnWidths() {
