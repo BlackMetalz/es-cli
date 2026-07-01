@@ -73,7 +73,10 @@ func New(client *es.Client) *Model {
 
 	s := table.DefaultStyles()
 	s.Header = theme.TableHeaderStyle
-	s.Selected = lipgloss.NewStyle()
+	// Reverse on the cursor row is a sentinel for postProcessTable to locate it
+	// independent of viewport offset and duplicate row content. postProcessTable
+	// strips the reverse wrap before output, replacing it with our own highlight.
+	s.Selected = lipgloss.NewStyle().Reverse(true)
 	t.SetStyles(s)
 
 	ti := textinput.New()

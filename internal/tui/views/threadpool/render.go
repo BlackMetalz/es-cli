@@ -27,6 +27,13 @@ const (
 	maxNodeColWidth = 40
 	minNameColWidth = 10
 	maxNameColWidth = 30
+
+	// cursorSentinel is the ANSI sequence bubbles emits around the cursor row when
+	// Styles.Selected = NewStyle().Reverse(true). postProcessTable strips it and
+	// replaces with our own highlight; robust against viewport scrolling and
+	// duplicate row content.
+	cursorSentinel = "\x1b[7m"
+	ansiReset      = "\x1b[0m"
 )
 
 func (m *Model) updateTable() {
@@ -65,21 +72,27 @@ func (m *Model) postProcessTable(tableView string) string {
 	lines := strings.Split(tableView, "\n")
 
 	cursor := m.table.Cursor()
-	var selNode, selName string
+	var selName string
 	if cursor >= 0 && cursor < len(m.filtered) {
-		sel := m.filtered[cursor]
-		selNode = sel.Node
-		selName = sel.Name
+		selName = m.filtered[cursor].Name
 		if len(selName) > m.colWidths[colName]-1 && m.colWidths[colName] > 1 {
 			selName = selName[:m.colWidths[colName]-1]
 		}
 	}
-	selectedDone := false
 
 	col0 := m.colWidths[colNode]
 	col1 := m.colWidths[colName]
 
+	// Cursor row is wrapped with \x1b[7m...\x1b[0m by bubbles (see Styles.Selected
+	// in model.go). Strip the wrap and use it as cursor identification — robust
+	// against viewport scrolling.
 	for i, line := range lines {
+		isCursor := strings.HasPrefix(line, cursorSentinel)
+		if isCursor {
+			line = strings.TrimSuffix(strings.TrimPrefix(line, cursorSentinel), ansiReset)
+			lines[i] = line
+		}
+
 		if len(line) < col0+col1 {
 			continue
 		}
@@ -87,27 +100,25 @@ func (m *Model) postProcessTable(tableView string) string {
 		nodeStr := strings.TrimSpace(line[:col0])
 		nameStr := strings.TrimSpace(line[col0 : col0+col1])
 		stats, ok := poolMap[nodeStr+"\x00"+nameStr]
-
-		if ok {
-			if stats.rejected > 0 {
-				lines[i] = replaceRightAligned(lines[i], stats.rejected, m.colWidths[colRejected],
-					theme.HealthRedStyle.Render)
-			}
-			if stats.queue > 0 {
-				lines[i] = replaceRightAligned(lines[i], stats.queue, m.colWidths[colQueue],
-					theme.HealthYellowStyle.Render)
-			}
-			if stats.active > 0 && stats.size > 0 && stats.active >= stats.size {
-				lines[i] = replaceRightAligned(lines[i], stats.active, m.colWidths[colActive],
-					theme.HealthYellowStyle.Render)
-			}
+		if !ok {
+			continue
 		}
 
-		if !selectedDone && selName != "" && selNode != "" {
-			if strings.Contains(line, selNode) && strings.Contains(line, selName) {
-				lines[i] = strings.Replace(lines[i], selName, theme.TableSelectedStyle.Render(selName), 1)
-				selectedDone = true
-			}
+		if stats.rejected > 0 {
+			lines[i] = replaceRightAligned(lines[i], stats.rejected, m.colWidths[colRejected],
+				theme.HealthRedStyle.Render)
+		}
+		if stats.queue > 0 {
+			lines[i] = replaceRightAligned(lines[i], stats.queue, m.colWidths[colQueue],
+				theme.HealthYellowStyle.Render)
+		}
+		if stats.active > 0 && stats.size > 0 && stats.active >= stats.size {
+			lines[i] = replaceRightAligned(lines[i], stats.active, m.colWidths[colActive],
+				theme.HealthYellowStyle.Render)
+		}
+
+		if isCursor && selName != "" {
+			lines[i] = strings.Replace(lines[i], selName, theme.TableSelectedStyle.Render(selName), 1)
 		}
 	}
 

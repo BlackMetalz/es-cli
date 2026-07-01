@@ -50,49 +50,49 @@ func (m *Model) updateTable() {
 	m.table.SetRows(rows)
 }
 
+// cursorSentinel is the ANSI sequence bubbles emits around the cursor row when
+// Styles.Selected = NewStyle().Reverse(true). We strip it and replace with our
+// own highlight; matching by sentinel is robust against duplicate row content
+// (same node+action across many tasks) and viewport scrolling.
+const cursorSentinel = "\x1b[7m"
+const ansiReset = "\x1b[0m"
+
 func (m *Model) postProcessTable(tableView string) string {
 	lines := strings.Split(tableView, "\n")
 
 	cursor := m.table.Cursor()
-	var selNode, selAction string
+	var selAction string
 	if cursor >= 0 && cursor < len(m.filtered) {
-		sel := m.filtered[cursor]
-		selNode = sel.NodeName
-		selAction = sel.Action
-		// Truncate to what the table actually renders in each column
-		if len(selNode) > m.colWidths[colNode]-1 && m.colWidths[colNode] > 1 {
-			selNode = selNode[:m.colWidths[colNode]-1]
-		}
+		selAction = m.filtered[cursor].Action
 		if len(selAction) > m.colWidths[colAction]-1 && m.colWidths[colAction] > 1 {
 			selAction = selAction[:m.colWidths[colAction]-1]
 		}
 	}
-	selectedDone := false
 
 	col0 := m.colWidths[colDuration]
 
 	for i, line := range lines {
+		isCursor := strings.HasPrefix(line, cursorSentinel)
+		if isCursor {
+			line = strings.TrimSuffix(strings.TrimPrefix(line, cursorSentinel), ansiReset)
+			lines[i] = line
+		}
+
 		if len(line) < col0 {
 			continue
 		}
-
 		durStr := strings.TrimSpace(line[:col0])
 		if durStr == "" {
 			continue
 		}
 
-		// Colorize duration column
 		if col, ok := durationColor(durStr); ok {
 			padding := strings.Repeat(" ", col0-len(durStr))
 			lines[i] = strings.Replace(lines[i], padding+durStr, padding+col.Render(durStr), 1)
 		}
 
-		// Selected row highlight: match by node name + action (same pattern as threadpool)
-		if !selectedDone && selNode != "" && selAction != "" {
-			if strings.Contains(line, selNode) && strings.Contains(line, selAction) {
-				lines[i] = strings.Replace(lines[i], selAction, theme.TableSelectedStyle.Render(selAction), 1)
-				selectedDone = true
-			}
+		if isCursor && selAction != "" {
+			lines[i] = strings.Replace(lines[i], selAction, theme.TableSelectedStyle.Render(selAction), 1)
 		}
 	}
 
