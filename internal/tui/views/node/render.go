@@ -7,7 +7,7 @@ import (
 	"github.com/kienlt/es-cli/internal/tui/theme"
 )
 
-var defaultColWidths = [11]int{16, 14, 7, 7, 5, 9, 9, 9, 14, 8, 7}
+var defaultColWidths = [12]int{16, 14, 7, 18, 7, 5, 9, 9, 9, 14, 8, 7}
 
 const (
 	minNameColWidth = 10
@@ -21,17 +21,31 @@ func (m *Model) updateTable() {
 			n.Name,
 			n.IP,
 			rightAlign(n.HeapPercent, m.colWidths[2]),
-			rightAlign(n.RAMPercent, m.colWidths[3]),
-			rightAlign(n.CPU, m.colWidths[4]),
-			rightAlign(n.Load1m, m.colWidths[5]),
-			rightAlign(n.Load5m, m.colWidths[6]),
-			rightAlign(n.Load15m, m.colWidths[7]),
+			rightAlign(formatHeapUsage(n.HeapCurrent, n.HeapMax), m.colWidths[3]),
+			rightAlign(n.RAMPercent, m.colWidths[4]),
+			rightAlign(n.CPU, m.colWidths[5]),
+			rightAlign(n.Load1m, m.colWidths[6]),
+			rightAlign(n.Load5m, m.colWidths[7]),
+			rightAlign(n.Load15m, m.colWidths[8]),
 			n.NodeRole,
 			n.Master,
-			rightAlign(n.DiskUsedPercent, m.colWidths[10]),
+			rightAlign(n.DiskUsedPercent, m.colWidths[11]),
 		}
 	}
 	m.table.SetRows(rows)
+}
+
+func formatHeapUsage(current, max string) string {
+	if current == "" && max == "" {
+		return ""
+	}
+	if current == "" {
+		current = "-"
+	}
+	if max == "" {
+		max = "-"
+	}
+	return current + " / " + max
 }
 
 // postProcessTable colorizes high-usage values and highlights the selected row.
@@ -144,14 +158,15 @@ func (m *Model) updateColumnWidths() {
 		{Title: "name", Width: m.colWidths[0]},
 		{Title: "ip", Width: m.colWidths[1]},
 		{Title: "heap%", Width: m.colWidths[2]},
-		{Title: "ram%", Width: m.colWidths[3]},
-		{Title: "cpu", Width: m.colWidths[4]},
-		{Title: "load_1m", Width: m.colWidths[5]},
-		{Title: "load_5m", Width: m.colWidths[6]},
-		{Title: "load_15m", Width: m.colWidths[7]},
-		{Title: "role", Width: m.colWidths[8]},
-		{Title: "master", Width: m.colWidths[9]},
-		{Title: "disk%", Width: m.colWidths[10]},
+		{Title: "heap", Width: m.colWidths[3]},
+		{Title: "ram%", Width: m.colWidths[4]},
+		{Title: "cpu", Width: m.colWidths[5]},
+		{Title: "load_1m", Width: m.colWidths[6]},
+		{Title: "load_5m", Width: m.colWidths[7]},
+		{Title: "load_15m", Width: m.colWidths[8]},
+		{Title: "role", Width: m.colWidths[9]},
+		{Title: "master", Width: m.colWidths[10]},
+		{Title: "disk%", Width: m.colWidths[11]},
 	}
 
 	m.table.SetWidth(m.width)

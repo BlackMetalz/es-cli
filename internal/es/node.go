@@ -9,6 +9,8 @@ type Node struct {
 	Name            string
 	IP              string
 	HeapPercent     string
+	HeapCurrent     string
+	HeapMax         string
 	RAMPercent      string
 	CPU             string
 	Load1m          string
@@ -20,7 +22,7 @@ type Node struct {
 }
 
 func (c *Client) ListNodes() ([]Node, error) {
-	data, err := c.Get("/_cat/nodes?format=json&h=name,ip,heap.percent,ram.percent,cpu,load_1m,load_5m,load_15m,node.role,master,disk.used_percent")
+	data, err := c.Get("/_cat/nodes?format=json&h=name,ip,heap.percent,heap.current,heap.max,ram.percent,cpu,load_1m,load_5m,load_15m,node.role,master,disk.used_percent")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
@@ -36,6 +38,8 @@ func (c *Client) ListNodes() ([]Node, error) {
 			Name:            JsonStr(r["name"]),
 			IP:              JsonStr(r["ip"]),
 			HeapPercent:     JsonStr(r["heap.percent"]),
+			HeapCurrent:     JsonStr(r["heap.current"]),
+			HeapMax:         JsonStr(r["heap.max"]),
 			RAMPercent:      JsonStr(r["ram.percent"]),
 			CPU:             JsonStr(r["cpu"]),
 			Load1m:          JsonStr(r["load_1m"]),

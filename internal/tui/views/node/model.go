@@ -33,7 +33,7 @@ type Model struct {
 	sortAsc   bool
 	width     int
 	height    int
-	colWidths [11]int
+	colWidths [12]int
 	err       error
 	loading   bool
 
@@ -56,6 +56,7 @@ func New(client *es.Client) *Model {
 			{Title: "name", Width: 20},
 			{Title: "ip", Width: 16},
 			{Title: "heap%", Width: 8},
+			{Title: "heap", Width: 16},
 			{Title: "ram%", Width: 8},
 			{Title: "cpu", Width: 6},
 			{Title: "load_1m", Width: 8},
