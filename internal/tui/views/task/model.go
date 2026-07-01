@@ -25,6 +25,7 @@ type ErrorMsg struct {
 
 type ActionCompleteMsg struct {
 	TaskID string
+	All    bool
 }
 
 type Model struct {
@@ -117,6 +118,15 @@ func (m *Model) selectedTask() *es.Task {
 	return &m.filtered[cursor]
 }
 
+func (m *Model) hasCancellableTasks() bool {
+	for _, t := range m.tasks {
+		if t.Cancellable {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) Update(msg tea.Msg) (views.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TasksLoadedMsg:
@@ -178,6 +188,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (views.View, tea.Cmd) {
 	case key.Matches(msg, m.keys.Cancel):
 		if sel := m.selectedTask(); sel != nil && sel.Cancellable {
 			m.pendingAction = &views.PendingAction{Type: "cancel_task", Index: sel.ID}
+		}
+	case key.Matches(msg, m.keys.CancelAll):
+		if m.hasCancellableTasks() {
+			m.pendingAction = &views.PendingAction{Type: "cancel_all_tasks"}
 		}
 	case key.Matches(msg, m.keys.Detail):
 		if sel := m.selectedTask(); sel != nil {
@@ -313,6 +327,7 @@ func (m *Model) HelpGroups() []views.HelpGroup {
 			Bindings: []key.Binding{
 				m.keys.Detail,
 				m.keys.Cancel,
+				m.keys.CancelAll,
 			},
 		},
 		{

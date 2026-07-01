@@ -492,7 +492,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, viewCmd)
 	}
 	if msg, ok := msg.(taskview.ActionCompleteMsg); ok {
-		cmd := a.setFlash(fmt.Sprintf("Task '%s' cancel requested", msg.TaskID), theme.StatusBarSuccessStyle)
+		flashText := fmt.Sprintf("Task '%s' cancel requested", msg.TaskID)
+		if msg.All {
+			flashText = "Cancel requested for all cancellable tasks"
+		}
+		cmd := a.setFlash(flashText, theme.StatusBarSuccessStyle)
 		var viewCmd tea.Cmd
 		a.viewStack[len(a.viewStack)-1], viewCmd = a.currentView().Update(msg)
 		return a, tea.Batch(cmd, viewCmd)
@@ -591,7 +595,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 	if a.readOnly {
 		switch pa.Type {
 		case "close", "open", "delete", "delete_ilm", "delete_template",
-			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task":
+			"edit_ilm", "edit_template", "set_allocation", "retry_allocation", "cancel_task", "cancel_all_tasks":
 			return a, a.setFlash("Read-only mode: action blocked", theme.HealthYellowStyle)
 		}
 	}
@@ -717,7 +721,7 @@ func (a *App) handlePendingAction(pa *views.PendingAction) (tea.Model, tea.Cmd) 
 			return msg
 		}
 
-	case "cancel_task":
+	case "cancel_task", "cancel_all_tasks":
 		a.overlay = overlayConfirm
 		a.confirmAction = pa.Type
 		a.confirmIndex = pa.Index
@@ -795,6 +799,11 @@ func (a *App) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return flashErrorMsg{err: err}
 				}
 				return taskview.ActionCompleteMsg{TaskID: indexName}
+			case "cancel_all_tasks":
+				if err := a.client.CancelAllTasks(); err != nil {
+					return flashErrorMsg{err: err}
+				}
+				return taskview.ActionCompleteMsg{All: true}
 			}
 			if err != nil {
 				return flashErrorMsg{err: err}
@@ -817,6 +826,9 @@ func (a *App) confirmOverlayView() string {
 		body = fmt.Sprintf("Cancel task '%s'?\n\n%s",
 			a.confirmIndex,
 			theme.HelpDescStyle.Render("POST /_tasks/"+a.confirmIndex+"/_cancel"))
+	case "cancel_all_tasks":
+		body = theme.HealthRedStyle.Render("Cancel ALL cancellable tasks on the cluster?") + "\n\n" +
+			theme.HelpDescStyle.Render("POST /_tasks/_cancel")
 	case "retry_allocation":
 		body = "Retry failed shard allocations across the cluster?\n" +
 			theme.HelpDescStyle.Render("POST /_cluster/reroute?retry_failed=true")

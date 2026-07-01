@@ -95,6 +95,14 @@ func (c *Client) CancelTask(taskID string) error {
 	return nil
 }
 
+func (c *Client) CancelAllTasks() error {
+	_, err := c.Post("/_tasks/_cancel", "")
+	if err != nil {
+		return fmt.Errorf("failed to cancel all tasks: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) GetTaskDetail(taskID string) ([]byte, error) {
 	data, err := c.Get("/_tasks/" + taskID)
 	if err != nil {

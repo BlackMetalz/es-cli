@@ -11,6 +11,7 @@ type KeyMap struct {
 	CycleCategory  key.Binding
 	ToggleAll      key.Binding
 	Cancel         key.Binding
+	CancelAll      key.Binding
 	Detail         key.Binding
 	Refresh        key.Binding
 	Search         key.Binding
@@ -51,6 +52,10 @@ func DefaultKeyMap() KeyMap {
 		Cancel: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c", "cancel task"),
+		),
+		CancelAll: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("Shift+C", "cancel all tasks"),
 		),
 		Detail: key.NewBinding(
 			key.WithKeys("enter"),
